@@ -22,6 +22,8 @@ const DEFAULT_SETTINGS: Settings = {
   provider: 'anthropic',
   model: 'claude-sonnet-4-20250514',
   apiKey: '',
+  baseUrl: '',
+  organization: '',
   saveApiKey: false,
   theme: 'auto',
 };
@@ -85,6 +87,8 @@ export default function App() {
     provider: settings.provider,
     model: settings.model,
     apiKey: settings.apiKey,
+    baseUrl: settings.baseUrl,
+    organization: settings.organization,
   };
 
   // Handlers
@@ -95,6 +99,8 @@ export default function App() {
     const toSave: Partial<Settings> = {
       provider: newSettings.provider,
       model: newSettings.model,
+      baseUrl: newSettings.baseUrl,
+      organization: newSettings.organization,
       saveApiKey: newSettings.saveApiKey,
       theme: newSettings.theme,
     };

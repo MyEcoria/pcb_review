@@ -12,6 +12,8 @@ export interface LLMConfig {
   provider: Provider;
   model: string;
   apiKey: string;
+  baseUrl?: string;
+  organization?: string;
 }
 
 export interface Message {
@@ -30,6 +32,11 @@ export function getModelsForProvider(provider: Provider): ModelOption[] {
       return ANTHROPIC_MODELS;
     case 'gemini':
       return GEMINI_MODELS;
+    case 'ollama_cloud':
+    case 'openai_compatible':
+      // Dynamic provider catalogs can vary by deployment.
+      // Return empty to allow free-form model entry in settings UI.
+      return [];
     default:
       return [];
   }
@@ -46,6 +53,10 @@ export function getDefaultModel(provider: Provider): string {
       return 'claude-sonnet-4-20250514';
     case 'gemini':
       return 'gemini-2.0-flash';
+    case 'ollama_cloud':
+      return 'llama3.1:8b';
+    case 'openai_compatible':
+      return '';
     default:
       return '';
   }
@@ -54,7 +65,7 @@ export function getDefaultModel(provider: Provider): string {
 /**
  * Validate an API key for a provider
  */
-export async function validateApiKey(provider: Provider, apiKey: string): Promise<boolean> {
+export async function validateApiKey(provider: Provider, apiKey: string, baseUrl?: string): Promise<boolean> {
   if (!apiKey || apiKey.trim().length === 0) {
     return false;
   }
@@ -66,6 +77,10 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
       return validateAnthropicKey(apiKey);
     case 'gemini':
       return validateGeminiKey(apiKey);
+    case 'ollama_cloud':
+      return validateOpenAIKey(apiKey, 'https://api.ollama.ai/v1');
+    case 'openai_compatible':
+      return validateOpenAIKey(apiKey, baseUrl);
     default:
       return false;
   }
@@ -77,7 +92,8 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
 export async function validateApiKeyAndModel(
   provider: Provider,
   apiKey: string,
-  model: string
+  model: string,
+  baseUrl?: string
 ): Promise<{ valid: boolean; error?: string }> {
   if (!apiKey || apiKey.trim().length === 0) {
     return { valid: false, error: 'API key is required' };
@@ -85,10 +101,13 @@ export async function validateApiKeyAndModel(
   if (!model || model.trim().length === 0) {
     return { valid: false, error: 'Model is required' };
   }
+  if (provider === 'openai_compatible' && (!baseUrl || baseUrl.trim().length === 0)) {
+    return { valid: false, error: 'Base URL is required for OpenAI-compatible providers' };
+  }
 
   try {
     // Make a minimal API call to validate both key and model
-    const config: LLMConfig = { provider, apiKey, model };
+    const config: LLMConfig = { provider, apiKey, model, baseUrl };
     await callLLM(config, 'You are a helpful assistant.', 'Reply with just the word "OK".', undefined);
     return { valid: true };
   } catch (err) {
@@ -119,7 +138,7 @@ export async function callLLM(
   onStream?: (chunk: string) => void,
   signal?: AbortSignal
 ): Promise<string> {
-  const { provider, model, apiKey } = config;
+  const { provider, model, apiKey, baseUrl } = config;
 
   switch (provider) {
     case 'openai': {
@@ -128,6 +147,26 @@ export async function callLLM(
         { role: 'user', content: userPrompt },
       ];
       return callOpenAI(apiKey, model, messages, onStream, signal);
+    }
+
+    case 'ollama_cloud': {
+      const messages: OpenAIMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ];
+      return callOpenAI(apiKey, model, messages, onStream, signal, 'https://api.ollama.ai/v1');
+    }
+
+    case 'openai_compatible': {
+      if (!baseUrl || baseUrl.trim().length === 0) {
+        throw new Error('Base URL is required for OpenAI-compatible providers');
+      }
+
+      const messages: OpenAIMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ];
+      return callOpenAI(apiKey, model, messages, onStream, signal, baseUrl);
     }
 
     case 'anthropic': {
@@ -158,7 +197,7 @@ export async function callLLMWithHistory(
   messages: Message[],
   onStream?: (chunk: string) => void
 ): Promise<string> {
-  const { provider, model, apiKey } = config;
+  const { provider, model, apiKey, baseUrl } = config;
 
   switch (provider) {
     case 'openai': {
@@ -170,6 +209,32 @@ export async function callLLMWithHistory(
         })),
       ];
       return callOpenAI(apiKey, model, openAIMessages, onStream);
+    }
+
+    case 'ollama_cloud': {
+      const openAIMessages: OpenAIMessage[] = [
+        { role: 'system', content: systemPrompt },
+        ...messages.filter(m => m.role !== 'system').map(m => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        })),
+      ];
+      return callOpenAI(apiKey, model, openAIMessages, onStream, undefined, 'https://api.ollama.ai/v1');
+    }
+
+    case 'openai_compatible': {
+      if (!baseUrl || baseUrl.trim().length === 0) {
+        throw new Error('Base URL is required for OpenAI-compatible providers');
+      }
+
+      const openAIMessages: OpenAIMessage[] = [
+        { role: 'system', content: systemPrompt },
+        ...messages.filter(m => m.role !== 'system').map(m => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        })),
+      ];
+      return callOpenAI(apiKey, model, openAIMessages, onStream, undefined, baseUrl);
     }
 
     case 'anthropic': {

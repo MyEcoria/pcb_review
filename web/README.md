@@ -1,73 +1,29 @@
-# React + TypeScript + Vite
+# PCB Review Web App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This web app supports multiple LLM backends for running PCB analysis prompts.
 
-Currently, two official plugins are available:
+## LLM Provider Setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Open **Settings** in the app and configure one of the providers below.
 
-## React Compiler
+### Ollama Cloud
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. Set **LLM Provider** to **Ollama Cloud**.
+2. Enter your Ollama Cloud API key in **API Key**.
+3. Enter a model id in **Model** (for example `llama3.1:8b`).
+4. Click **Validate** and then **Save**.
 
-## Expanding the ESLint configuration
+### Custom OpenAI-compatible provider
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Use this for providers exposing OpenAI Chat Completions-compatible endpoints.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+1. Set **LLM Provider** to **Custom OpenAI-compatible**.
+2. Set **Base URL** to your provider endpoint root, for example:
+   - `https://api.together.xyz/v1`
+   - `https://openrouter.ai/api/v1`
+   - `https://your-internal-gateway.example/v1`
+3. Enter your provider API key in **API Key**.
+4. Enter your model id in **Model**.
+5. Click **Validate** and then **Save**.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+> Note: if your Base URL is entered without `/v1`, the app appends `/v1` automatically.

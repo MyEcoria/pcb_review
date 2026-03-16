@@ -22,11 +22,12 @@ export function SettingsPanel({
   const [validationResult, setValidationResult] = useState<{ valid: boolean; error?: string } | null>(null);
 
   const models = getModelsForProvider(localSettings.provider);
+  const hasCatalogModels = models.length > 0;
 
   useEffect(() => {
-    // Reset validation when key, provider, or model changes
+    // Reset validation when key, provider, model, or base URL changes
     setValidationResult(null);
-  }, [localSettings.apiKey, localSettings.provider, localSettings.model]);
+  }, [localSettings.apiKey, localSettings.provider, localSettings.model, localSettings.baseUrl]);
 
   const handleValidate = async () => {
     if (!localSettings.apiKey) return;
@@ -36,7 +37,8 @@ export function SettingsPanel({
       const result = await validateApiKeyAndModel(
         localSettings.provider,
         localSettings.apiKey,
-        localSettings.model
+        localSettings.model,
+        localSettings.baseUrl
       );
       setValidationResult(result);
     } catch (err) {
@@ -61,7 +63,7 @@ export function SettingsPanel({
     setLocalSettings(prev => ({
       ...prev,
       provider,
-      model: newProviderModels[0]?.id || '',
+      model: newProviderModels[0]?.id || prev.model || '',
     }));
   };
 
@@ -110,26 +112,74 @@ export function SettingsPanel({
                 />
                 <span>Google Gemini</span>
               </label>
+              <label className={styles.radioLabel}>
+                <input
+                  type="radio"
+                  name="provider"
+                  value="ollama_cloud"
+                  checked={localSettings.provider === 'ollama_cloud'}
+                  onChange={() => handleProviderChange('ollama_cloud')}
+                />
+                <span>Ollama Cloud</span>
+              </label>
+              <label className={styles.radioLabel}>
+                <input
+                  type="radio"
+                  name="provider"
+                  value="openai_compatible"
+                  checked={localSettings.provider === 'openai_compatible'}
+                  onChange={() => handleProviderChange('openai_compatible')}
+                />
+                <span>Custom OpenAI-compatible</span>
+              </label>
             </div>
           </div>
 
           {/* Model Selection */}
           <div className={styles.field}>
             <label className={styles.label}>Model</label>
-            <select
-              className={styles.select}
-              value={localSettings.model}
-              onChange={(e) =>
-                setLocalSettings(prev => ({ ...prev, model: e.target.value }))
-              }
-            >
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </select>
+            {hasCatalogModels ? (
+              <select
+                className={styles.select}
+                value={localSettings.model}
+                onChange={(e) =>
+                  setLocalSettings(prev => ({ ...prev, model: e.target.value }))
+                }
+              >
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                className={styles.input}
+                value={localSettings.model}
+                onChange={(e) =>
+                  setLocalSettings(prev => ({ ...prev, model: e.target.value }))
+                }
+                placeholder="Enter model id (provider-defined)"
+              />
+            )}
           </div>
+
+          {/* Base URL for custom OpenAI-compatible providers */}
+          {localSettings.provider === 'openai_compatible' && (
+            <div className={styles.field}>
+              <label className={styles.label}>Base URL</label>
+              <input
+                type="text"
+                className={styles.input}
+                value={localSettings.baseUrl || ''}
+                onChange={(e) =>
+                  setLocalSettings(prev => ({ ...prev, baseUrl: e.target.value }))
+                }
+                placeholder="https://your-provider.example/v1"
+              />
+            </div>
+          )}
 
           {/* API Key */}
           <div className={styles.field}>
@@ -143,10 +193,12 @@ export function SettingsPanel({
                   setLocalSettings(prev => ({ ...prev, apiKey: e.target.value }))
                 }
                 placeholder={
-                  localSettings.provider === 'openai'
+                  localSettings.provider === 'openai' || localSettings.provider === 'openai_compatible'
                     ? 'sk-...'
                     : localSettings.provider === 'anthropic'
                     ? 'sk-ant-...'
+                    : localSettings.provider === 'ollama_cloud'
+                    ? 'oc-...'
                     : 'AIza...'
                 }
               />
@@ -164,7 +216,12 @@ export function SettingsPanel({
                 type="button"
                 className={styles.validateButton}
                 onClick={handleValidate}
-                disabled={!localSettings.apiKey || !localSettings.model || validating}
+                disabled={
+                  !localSettings.apiKey
+                  || !localSettings.model
+                  || (localSettings.provider === 'openai_compatible' && !localSettings.baseUrl)
+                  || validating
+                }
               >
                 {validating ? 'Validating...' : 'Validate'}
               </button>

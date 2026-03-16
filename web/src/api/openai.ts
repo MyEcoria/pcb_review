@@ -43,6 +43,21 @@ function supportsStreaming(model: string): boolean {
   return !NON_STREAMING_MODELS.some(m => model.startsWith(m));
 }
 
+function normalizeBaseUrl(baseUrl?: string): string {
+  const raw = baseUrl?.trim();
+  if (!raw) {
+    return 'https://api.openai.com/v1';
+  }
+
+  const withoutTrailing = raw.replace(/\/+$/, '');
+  return withoutTrailing.endsWith('/v1') ? withoutTrailing : `${withoutTrailing}/v1`;
+}
+
+function buildEndpoint(baseUrl: string, path: string): string {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${baseUrl}${cleanPath}`;
+}
+
 /**
  * Call the OpenAI API with messages
  */
@@ -51,11 +66,13 @@ export async function callOpenAI(
   model: string,
   messages: OpenAIMessage[],
   onStream?: (chunk: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  baseUrl?: string
 ): Promise<string> {
   const canStream = supportsStreaming(model) && !!onStream;
+  const effectiveBaseUrl = normalizeBaseUrl(baseUrl);
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch(buildEndpoint(effectiveBaseUrl, '/chat/completions'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -144,9 +161,10 @@ async function streamOpenAIResponse(
 /**
  * Validate an OpenAI API key by making a simple request
  */
-export async function validateOpenAIKey(apiKey: string): Promise<boolean> {
+export async function validateOpenAIKey(apiKey: string, baseUrl?: string): Promise<boolean> {
   try {
-    const response = await fetch('https://api.openai.com/v1/models', {
+    const effectiveBaseUrl = normalizeBaseUrl(baseUrl);
+    const response = await fetch(buildEndpoint(effectiveBaseUrl, '/models'), {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
