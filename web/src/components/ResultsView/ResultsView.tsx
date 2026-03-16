@@ -208,7 +208,7 @@ export function ResultsView({
                 className={styles.tocLink}
                 onClick={() => scrollToSection(result.promptId)}
               >
-                {result.promptName}
+                {result.promptName} ({result.checksExecuted ?? result.checks?.length ?? 0} checks executed)
               </button>
             </li>
           ))}
@@ -244,7 +244,7 @@ export function ResultsView({
                   {isExpanded ? '▼' : '▶'}
                 </span>
                 <div className={styles.sectionHeaderContent}>
-                  <h3 className={styles.sectionTitle}>{result.promptName}</h3>
+                  <h3 className={styles.sectionTitle}>{result.promptName} ({result.checksExecuted ?? result.checks?.length ?? 0} checks executed)</h3>
                   {!isExpanded && (
                     <p className={styles.sectionSummary}>
                       {getSectionSummary(result.response)}
@@ -254,6 +254,9 @@ export function ResultsView({
               </button>
               {isExpanded && (
                 <div className={styles.sectionContent}>
+                  {result.parseWarning && (
+                    <div className={styles.parseWarning}>{result.parseWarning}</div>
+                  )}
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                     {result.response}
                   </ReactMarkdown>
@@ -284,7 +287,7 @@ export function ResultsView({
               <div className={styles.sectionContent}>
                 {failedResults.map(result => (
                   <div key={result.promptId} className={styles.errorItem}>
-                    <strong>{result.promptName}:</strong> {result.error}
+                    <strong>{result.promptName} ({result.checksExecuted ?? result.checks?.length ?? 0} checks executed):</strong> {result.error}
                   </div>
                 ))}
               </div>

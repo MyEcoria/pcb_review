@@ -100,7 +100,7 @@ export function AnalysisSelector({ selectedAnalyses, onChange }: AnalysisSelecto
                         )}
                       </span>
                       <span className={styles.promptDescription}>
-                        {prompt.shortDescription}
+                        {`${prompt.shortDescription} • ${prompt.minChecks} checks executed (min)`}
                       </span>
                     </div>
                   </label>

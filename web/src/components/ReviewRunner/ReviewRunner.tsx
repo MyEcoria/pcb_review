@@ -54,17 +54,35 @@ function normalizeCheck(raw: Record<string, unknown>, index: number): ReviewChec
   };
 }
 
-function parseStructuredChecks(response: string): ReviewCheck[] {
+interface ParsedChecksResult {
+  checks: ReviewCheck[];
+  parseWarning?: string;
+}
+
+function parseStructuredChecks(response: string, expectedAnalysisId: string, minChecks: number): ParsedChecksResult {
   const fencedJsonBlocks = [...response.matchAll(/```json\s*([\s\S]*?)```/gi)].map(match => match[1]?.trim() ?? '');
 
   for (const block of fencedJsonBlocks) {
     try {
-      const parsed = JSON.parse(block) as { checks?: unknown };
-      if (Array.isArray(parsed.checks)) {
-        return parsed.checks
-          .filter((check): check is Record<string, unknown> => typeof check === 'object' && check !== null)
-          .map((check, index) => normalizeCheck(check, index));
+      const parsed = JSON.parse(block) as { analysis_id?: unknown; checks?: unknown };
+      if (!Array.isArray(parsed.checks)) {
+        continue;
       }
+
+      const checks = parsed.checks
+        .filter((check): check is Record<string, unknown> => typeof check === 'object' && check !== null)
+        .map((check, index) => normalizeCheck(check, index));
+
+      let parseWarning: string | undefined;
+      if (typeof parsed.analysis_id !== 'string' || parsed.analysis_id !== expectedAnalysisId) {
+        parseWarning = `Structured output analysis_id mismatch (expected ${expectedAnalysisId}).`;
+      }
+      if (checks.length < minChecks) {
+        const minChecksWarning = `Structured output included ${checks.length} checks; expected at least ${minChecks} for ${expectedAnalysisId}.`;
+        parseWarning = parseWarning ? `${parseWarning} ${minChecksWarning}` : minChecksWarning;
+      }
+
+      return { checks, parseWarning };
     } catch {
       // Ignore malformed JSON blocks and continue to fallback parsing
     }
@@ -92,7 +110,13 @@ function parseStructuredChecks(response: string): ReviewCheck[] {
       }, index);
     });
 
-  return markdownChecks;}
+  let parseWarning = 'Missing required structured JSON block; fallback markdown parsing was used.';
+  if (markdownChecks.length < minChecks) {
+    parseWarning += ` Parsed ${markdownChecks.length} fallback checks; expected at least ${minChecks} for ${expectedAnalysisId}.`;
+  }
+
+  return { checks: markdownChecks, parseWarning };
+}
 
 const EXECUTIVE_SUMMARY_PROMPT = `You are a PCB design review expert. Based on the analysis results provided, write a concise executive summary (2-3 paragraphs) that:
 
@@ -272,13 +296,15 @@ export function ReviewRunner({
         );
 
         if (!signal.aborted) {
-          const checks = parseStructuredChecks(response);
+          const parsedChecks = parseStructuredChecks(response, prompt.id, prompt.minChecks);
           const result: ReviewResult = {
             promptId,
             promptName: prompt.name,
             response,
-            checks,
-            scoreSummary: calculateReviewScoreSummary(checks),
+            checks: parsedChecks.checks,
+            checksExecuted: parsedChecks.checks.length,
+            parseWarning: parsedChecks.parseWarning,
+            scoreSummary: calculateReviewScoreSummary(parsedChecks.checks),
             timestamp: Date.now(),
           };
           resultsRef.current.push(result);
@@ -299,6 +325,7 @@ export function ReviewRunner({
             promptName: prompt.name,
             response: '',
             checks: [],
+            checksExecuted: 0,
             scoreSummary: calculateReviewScoreSummary([]),
             error: message,
             timestamp: Date.now(),
