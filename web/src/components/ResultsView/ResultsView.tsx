@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ReviewResult, AnalysisResult } from '../../types';
+import type { ReviewResult, AnalysisResult, ReviewCheck, ReviewScoreSummary } from '../../types';
 import styles from './ResultsView.module.css';
 
 interface ResultsViewProps {
@@ -11,6 +11,7 @@ interface ResultsViewProps {
   onBack: () => void;
   onExportMarkdown: () => void;
   onExportPDF: () => void;
+  scoreSummary: ReviewScoreSummary;
 }
 
 export function ResultsView({
@@ -20,6 +21,7 @@ export function ResultsView({
   onBack,
   onExportMarkdown,
   onExportPDF,
+  scoreSummary,
 }: ResultsViewProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [allExpanded, setAllExpanded] = useState(false);
@@ -33,6 +35,22 @@ export function ResultsView({
     () => results.filter(r => r.error),
     [results]
   );
+
+
+  const allChecks = useMemo<ReviewCheck[]>(
+    () => successfulResults.flatMap(result => result.checks ?? []),
+    [successfulResults]
+  );
+
+  const suggestionsBySeverity = useMemo(() => {
+    const severities: Array<ReviewCheck['severity']> = ['critical', 'high', 'medium', 'low', 'info'];
+    return severities
+      .map(severity => ({
+        severity,
+        checks: allChecks.filter(check => check.severity === severity && check.suggestion.trim()),
+      }))
+      .filter(group => group.checks.length > 0);
+  }, [allChecks]);
 
 
   // Generate short summary for each section
@@ -144,6 +162,36 @@ export function ResultsView({
           </div>
         )}
       </section>
+
+
+      <section className={styles.scoreCard}>
+        <h2 className={styles.summaryTitle}>Structured Review Score</h2>
+        <div className={styles.scoreValue}>{scoreSummary.score} / {scoreSummary.total}</div>
+        <div className={styles.scoreCounters}>
+          <span className={styles.passCounter}>Pass: {scoreSummary.passed}</span>
+          <span className={styles.failCounter}>Fail: {scoreSummary.failed}</span>
+          <span className={styles.warningCounter}>Warning: {scoreSummary.warnings}</span>
+        </div>
+      </section>
+
+      {suggestionsBySeverity.length > 0 && (
+        <section className={styles.suggestionsPanel}>
+          <h2 className={styles.summaryTitle}>Suggestions by Severity</h2>
+          {suggestionsBySeverity.map(group => (
+            <div key={group.severity} className={styles.suggestionGroup}>
+              <h3 className={styles.suggestionGroupTitle}>{group.severity.toUpperCase()}</h3>
+              <ul className={styles.suggestionList}>
+                {group.checks.map(check => (
+                  <li key={`${group.severity}-${check.id}`} className={styles.suggestionItem}>
+                    <strong>{check.title}</strong>
+                    {check.category && <span className={styles.suggestionCategory}> ({check.category})</span>}: {check.suggestion}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Table of Contents */}
       <nav className={styles.toc}>

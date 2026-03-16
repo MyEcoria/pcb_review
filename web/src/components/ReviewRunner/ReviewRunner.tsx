@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import type { AnalysisResult, LLMConfig, ReviewResult, ReviewStatus } from '../../types';
+import type { AnalysisResult, LLMConfig, ReviewCheck, ReviewResult, ReviewScoreSummary, ReviewStatus } from '../../types';
 import { getPromptById, FAB_CAPABILITIES_REFERENCE } from '../../prompts';
 import { callLLM } from '../../api/llm';
 import styles from './ReviewRunner.module.css';
@@ -15,6 +15,84 @@ interface ReviewRunnerProps {
   onCancelRef?: React.MutableRefObject<(() => void) | null>;
   onOpenSettings?: () => void;
 }
+
+
+function calculateReviewScoreSummary(checks: ReviewCheck[]): ReviewScoreSummary {
+  const passed = checks.filter(check => check.status === 'pass').length;
+  const failed = checks.filter(check => check.status === 'fail').length;
+  const warnings = checks.filter(check => check.status === 'warning').length;
+  const total = checks.length;
+
+  return {
+    total,
+    passed,
+    failed,
+    warnings,
+    score: passed,
+  };
+}
+
+function normalizeCheck(raw: Record<string, unknown>, index: number): ReviewCheck {
+  const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : `check-${index + 1}`;
+  const status = raw.status === 'pass' || raw.status === 'fail' || raw.status === 'warning' ? raw.status : 'warning';
+  const severity = raw.severity === 'critical' || raw.severity === 'high' || raw.severity === 'medium' || raw.severity === 'low' || raw.severity === 'info'
+    ? raw.severity
+    : status === 'fail'
+      ? 'high'
+      : status === 'warning'
+        ? 'medium'
+        : 'info';
+
+  return {
+    id,
+    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : `Check ${index + 1}`,
+    status,
+    severity,
+    evidence: typeof raw.evidence === 'string' ? raw.evidence : '',
+    suggestion: typeof raw.suggestion === 'string' ? raw.suggestion : '',
+    category: typeof raw.category === 'string' ? raw.category : undefined,
+  };
+}
+
+function parseStructuredChecks(response: string): ReviewCheck[] {
+  const fencedJsonBlocks = [...response.matchAll(/```json\s*([\s\S]*?)```/gi)].map(match => match[1]?.trim() ?? '');
+
+  for (const block of fencedJsonBlocks) {
+    try {
+      const parsed = JSON.parse(block) as { checks?: unknown };
+      if (Array.isArray(parsed.checks)) {
+        return parsed.checks
+          .filter((check): check is Record<string, unknown> => typeof check === 'object' && check !== null)
+          .map((check, index) => normalizeCheck(check, index));
+      }
+    } catch {
+      // Ignore malformed JSON blocks and continue to fallback parsing
+    }
+  }
+
+  const markdownChecks = response
+    .split(/\n\s*\n/)
+    .filter(section => /status\s*:/i.test(section) && /suggestion\s*:/i.test(section))
+    .map((section, index) => {
+      const title = section.match(/\*\*(.+?)\*\*/)?.[1] ?? `Markdown Check ${index + 1}`;
+      const status = section.match(/status\s*:\s*(pass|fail|warning)/i)?.[1]?.toLowerCase();
+      const severity = section.match(/severity\s*:\s*(critical|high|medium|low|info)/i)?.[1]?.toLowerCase();
+      const evidence = section.match(/evidence\s*:\s*(.+)/i)?.[1] ?? '';
+      const suggestion = section.match(/suggestion\s*:\s*(.+)/i)?.[1] ?? '';
+      const category = section.match(/category\s*:\s*(.+)/i)?.[1];
+
+      return normalizeCheck({
+        id: `md-check-${index + 1}`,
+        title,
+        status,
+        severity,
+        evidence,
+        suggestion,
+        category,
+      }, index);
+    });
+
+  return markdownChecks;}
 
 const EXECUTIVE_SUMMARY_PROMPT = `You are a PCB design review expert. Based on the analysis results provided, write a concise executive summary (2-3 paragraphs) that:
 
@@ -90,7 +168,7 @@ export function ReviewRunner({
         case 'summary':
           parts.push(`### Summary\n\`\`\`json\n${JSON.stringify(analysisResult.summary, null, 2)}\n\`\`\`\n`);
           break;
-        case 'power':
+        case 'power': {
           // Build power data from analyzer output - include power ICs for regulator identification
           const powerICs = analysisResult.components.byType['IC_POWER'] || [];
           const inductors = analysisResult.components.byType['INDUCTOR'] || [];
@@ -108,7 +186,8 @@ export function ReviewRunner({
           };
           parts.push(`### Power Analysis\n\`\`\`json\n${JSON.stringify(powerData, null, 2)}\n\`\`\`\n`);
           break;
-        case 'signals':
+        }
+        case 'signals': {
           // Build signals data from analyzer output
           const signalsData = {
             signalNets: analysisResult.signalNets,
@@ -118,7 +197,8 @@ export function ReviewRunner({
           };
           parts.push(`### Signal Analysis\n\`\`\`json\n${JSON.stringify(signalsData, null, 2)}\n\`\`\`\n`);
           break;
-        case 'components':
+        }
+        case 'components': {
           // Build components data
           const componentsData = {
             byType: analysisResult.components.byType,
@@ -127,7 +207,8 @@ export function ReviewRunner({
           };
           parts.push(`### Components\n\`\`\`json\n${JSON.stringify(componentsData, null, 2)}\n\`\`\`\n`);
           break;
-        case 'dfm':
+        }
+        case 'dfm': {
           // Build DFM data from analyzer output
           const dfmData = {
             viaStats: analysisResult.viaStats,
@@ -139,6 +220,7 @@ export function ReviewRunner({
           console.log('Via-in-pad instances:', analysisResult.viaInPad);
           parts.push(`### DFM Analysis\n\`\`\`json\n${JSON.stringify(dfmData, null, 2)}\n\`\`\`\n`);
           break;
+        }
       }
     }
 
@@ -190,10 +272,13 @@ export function ReviewRunner({
         );
 
         if (!signal.aborted) {
+          const checks = parseStructuredChecks(response);
           const result: ReviewResult = {
             promptId,
             promptName: prompt.name,
             response,
+            checks,
+            scoreSummary: calculateReviewScoreSummary(checks),
             timestamp: Date.now(),
           };
           resultsRef.current.push(result);
@@ -213,6 +298,8 @@ export function ReviewRunner({
             promptId,
             promptName: prompt.name,
             response: '',
+            checks: [],
+            scoreSummary: calculateReviewScoreSummary([]),
             error: message,
             timestamp: Date.now(),
           };

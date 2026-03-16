@@ -408,3 +408,50 @@
     justify-content: center;
   }
 }
+
+.scoreCard,
+.suggestionsPanel {
+  max-width: 700px;
+  margin: 0 auto var(--spacing-xl);
+  padding: var(--spacing-lg);
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.scoreValue {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.scoreCounters {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-sm);
+}
+
+.passCounter { color: #16a34a; }
+.failCounter { color: var(--color-error); }
+.warningCounter { color: #d97706; }
+
+.suggestionGroup + .suggestionGroup {
+  margin-top: var(--spacing-md);
+}
+
+.suggestionGroupTitle {
+  margin: 0 0 var(--spacing-xs);
+}
+
+.suggestionList {
+  margin: 0;
+  padding-left: var(--spacing-lg);
+}
+
+.suggestionItem {
+  color: var(--color-text-secondary);
+}
+
+.suggestionCategory {
+  color: var(--color-text-muted);
+}
