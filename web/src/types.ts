@@ -34,6 +34,8 @@ export interface ReviewResult {
   promptName: string;
   response: string;
   checks?: ReviewCheck[];
+  checksExecuted?: number;
+  parseWarning?: string;
   scoreSummary?: ReviewScoreSummary;
   error?: string;
   timestamp: number;

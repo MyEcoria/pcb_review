@@ -16,8 +16,61 @@ export interface PromptConfig {
   jsonFiles: ('summary' | 'power' | 'signals' | 'components' | 'dfm')[];
   prompt: string;
   estimatedTokens: number;
+  minChecks: number;
   recommended: boolean;
 }
+
+const FORMATTING_CONSTRAINTS = `**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
+- Header row with pipe separators: | Column1 | Column2 | Column3 |
+- Separator row with dashes: |---------|---------|---------|
+- Data rows with pipes: | data1 | data2 | data3 |`;
+
+const RESPONSE_BOILERPLATE = 'IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.';
+
+const CHECK_LIBRARIES = {
+  general: `### Check Library (General)
+- power-rail-coherence
+- regulator-decoupling-coverage
+- high-speed-routing-risk
+- min-feature-manufacturing-risk
+- schematic-layout-crossref`,
+  power: `### Check Library (Power)
+- rail-source-identification
+- regulator-headroom
+- decoupling-ratio
+- power-distribution-bottleneck
+- thermal-relief-for-power`,
+  signal: `### Check Library (Signal Integrity / EMI)
+- diff-pair-length-match
+- impedance-consistency
+- high-speed-via-usage
+- return-path-integrity
+- cable-emissions-risk`,
+  manufacturing: `### Check Library (DFM)
+- drill-capability-class
+- trace-space-process-class
+- layer-cost-risk
+- assembly-density-risk
+- special-process-requirements`,
+  protection: `### Check Library (ESD / Overcurrent / Thermal)
+- interface-esd-coverage
+- overcurrent-coordination
+- transient-survivability
+- thermal-junction-margin
+- protection-placement-quality`,
+  components: `### Check Library (Components / BOM)
+- design-intent-component-fit
+- passive-value-sanity
+- footprint-consistency
+- critical-part-availability
+- missing-critical-function-blocks`,
+  testing: `### Check Library (Testability / DFA)
+- test-point-coverage
+- programming-debug-access
+- ict-compatibility
+- assembly-polarity-risk
+- rework-accessibility`,
+} as const;
 
 
 export const STRUCTURED_OUTPUT_CONTRACT = `
@@ -28,9 +81,12 @@ At the end of your response, include a machine-readable JSON block in a fenced c
 ## Structured Checks (JSON)
 \`\`\`json
 {
+  "analysis_id": "general-review",
+  "overall_risk": "low|medium|high|critical",
+  "top_actions": ["Top action 1", "Top action 2"],
   "checks": [
     {
-      "id": "short-kebab-id",
+      "id": "stable-kebab-id",
       "title": "Check title",
       "status": "pass|fail|warning",
       "severity": "critical|high|medium|low|info",
@@ -43,28 +99,30 @@ At the end of your response, include a machine-readable JSON block in a fenced c
 \`\`\`
 
 Rules:
+- Required top-level fields: \`analysis_id\`, \`checks[]\`, \`overall_risk\`, \`top_actions[]\`.
 - \`checks\` must be a JSON array with one entry per finding.
-- Every check MUST include status, severity, evidence, and suggestion.
+- Every check MUST include a stable \`id\` and \`status\` enum (\`pass|fail|warning\`), plus severity, evidence, and suggestion.
 - If no issues are found, still include at least one \`pass\` check with rationale.
 - Keep narrative markdown sections above, but ensure this JSON block is valid JSON and appears exactly once at the end.
 `;
 
-export function withStructuredOutputContract(prompt: string): string {
+export function withStructuredOutputContract(prompt: string, analysisId: string, minChecks: number): string {
   return `${prompt}
 
-${STRUCTURED_OUTPUT_CONTRACT}`;
+${STRUCTURED_OUTPUT_CONTRACT}
+
+Minimum checks required for ${analysisId}: ${minChecks}.`;
 }
 
 export const GENERAL_REVIEW_PROMPT = `# General PCB Design Review
 
 You are an expert PCB design engineer reviewing a KiCad project. Analyze the provided JSON data and provide a comprehensive design review.
 
-**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
-- Header row with pipe separators: | Column1 | Column2 | Column3 |
-- Separator row with dashes: |---------|---------|---------|
-- Data rows with pipes: | data1 | data2 | data3 |
+${FORMATTING_CONSTRAINTS}
 
 ## Instructions
+
+${CHECK_LIBRARIES.general}
 
 Review the attached PCB analysis JSON and evaluate the design across these categories:
 
@@ -122,19 +180,18 @@ Provide your review in this structure:
 ## Questions for Designer
 - [Questions that would help clarify design intent]
 
-IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.
+${RESPONSE_BOILERPLATE}
 `;
 
 export const POWER_ANALYSIS_PROMPT = `# Power Architecture Analysis
 
 You are an expert power electronics engineer reviewing the power architecture of a PCB design.
 
-**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
-- Header row with pipe separators: | Column1 | Column2 | Column3 |
-- Separator row with dashes: |---------|---------|---------|
-- Data rows with pipes: | data1 | data2 | data3 |
+${FORMATTING_CONSTRAINTS}
 
 ## Instructions
+
+${CHECK_LIBRARIES.power}
 
 Analyze the power-related aspects of the provided PCB analysis JSON:
 
@@ -211,19 +268,18 @@ Input: [voltage] → [regulator] → [rail 1]
 ### Suggestions
 - [Improvements]
 
-IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.
+${RESPONSE_BOILERPLATE}
 `;
 
 export const SIGNAL_INTEGRITY_PROMPT = `# Signal Integrity Analysis
 
 You are an expert signal integrity engineer reviewing high-speed signal routing on a PCB.
 
-**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
-- Header row with pipe separators: | Column1 | Column2 | Column3 |
-- Separator row with dashes: |---------|---------|---------|
-- Data rows with pipes: | data1 | data2 | data3 |
+${FORMATTING_CONSTRAINTS}
 
 ## Instructions
+
+${CHECK_LIBRARIES.signal}
 
 Analyze signal integrity aspects from the provided PCB analysis JSON:
 
@@ -309,19 +365,18 @@ Common Impedance Targets:
 ## Recommended Actions
 1. [Action items]
 
-IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.
+${RESPONSE_BOILERPLATE}
 `;
 
 export const DFM_ANALYSIS_PROMPT = `# Design for Manufacturing (DFM) Analysis
 
 You are a PCB manufacturing engineer reviewing a design for manufacturability.
 
-**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
-- Header row with pipe separators: | Column1 | Column2 | Column3 |
-- Separator row with dashes: |---------|---------|---------|
-- Data rows with pipes: | data1 | data2 | data3 |
+${FORMATTING_CONSTRAINTS}
 
 ## Instructions
+
+${CHECK_LIBRARIES.manufacturing}
 
 Analyze the PCB design for manufacturing risks and cost optimization:
 
@@ -420,19 +475,18 @@ Identify if design needs:
 | Standard        | Yes/No     | ...   |
 | Advanced        | Yes/No     | ...   |
 
-IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.
+${RESPONSE_BOILERPLATE}
 `;
 
 export const COMPONENT_BOM_PROMPT = `# Component and BOM Analysis
 
 You are an electronics engineer reviewing the component selection and bill of materials for a PCB design.
 
-**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
-- Header row with pipe separators: | Column1 | Column2 | Column3 |
-- Separator row with dashes: |---------|---------|---------|
-- Data rows with pipes: | data1 | data2 | data3 |
+${FORMATTING_CONSTRAINTS}
 
 ## Instructions
+
+${CHECK_LIBRARIES.components}
 
 Analyze the component selection from the provided PCB analysis JSON:
 
@@ -535,19 +589,18 @@ Key indicators:
 | [Part]    | Common       | Low  |
 | [Part]    | Specialty    | High |
 
-IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.
+${RESPONSE_BOILERPLATE}
 `;
 
 export const POWER_DELIVERY_PROMPT = `# Power Delivery Analysis
 
 You are a power electronics engineer analyzing whether a PCB's power distribution network can adequately supply all connected loads.
 
-**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
-- Header row with pipe separators: | Column1 | Column2 | Column3 |
-- Separator row with dashes: |---------|---------|---------|
-- Data rows with pipes: | data1 | data2 | data3 |
+${FORMATTING_CONSTRAINTS}
 
 ## Instructions
+
+${CHECK_LIBRARIES.power}
 
 Using the provided PCB analysis JSON, perform a detailed power budget analysis:
 
@@ -614,19 +667,18 @@ Check that upstream regulators can supply the total load.
 ### Recommendations
 - [Improvements if needed]
 
-IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.
+${RESPONSE_BOILERPLATE}
 `;
 
 export const EMI_ANALYSIS_PROMPT = `# EMI/EMC Analysis
 
 You are an EMC engineer reviewing a PCB design for electromagnetic interference risks and compliance considerations.
 
-**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
-- Header row with pipe separators: | Column1 | Column2 | Column3 |
-- Separator row with dashes: |---------|---------|---------|
-- Data rows with pipes: | data1 | data2 | data3 |
+${FORMATTING_CONSTRAINTS}
 
 ## Instructions
+
+${CHECK_LIBRARIES.signal}
 
 Using the provided PCB analysis JSON, evaluate EMI/EMC characteristics:
 
@@ -706,19 +758,18 @@ Check ground integrity.
 #### Suggestions (improved margin)
 - [suggestions]
 
-IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.
+${RESPONSE_BOILERPLATE}
 `;
 
 export const OVERCURRENT_PROTECTION_PROMPT = `# Short Circuit and Overcurrent Protection Analysis
 
 You are a power systems engineer reviewing a PCB design for adequate protection against overcurrent conditions, short circuits, and fault scenarios.
 
-**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
-- Header row with pipe separators: | Column1 | Column2 | Column3 |
-- Separator row with dashes: |---------|---------|---------|
-- Data rows with pipes: | data1 | data2 | data3 |
+${FORMATTING_CONSTRAINTS}
 
 ## Instructions
+
+${CHECK_LIBRARIES.protection}
 
 Using the provided PCB analysis JSON, evaluate protection mechanisms:
 
@@ -803,19 +854,18 @@ Verify protection devices are properly coordinated.
 #### Suggestions (improved robustness)
 - [nice-to-have improvements]
 
-IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.
+${RESPONSE_BOILERPLATE}
 `;
 
 export const ESD_PROTECTION_PROMPT = `# ESD and Transient Protection Analysis
 
 You are an ESD/EMC engineer reviewing a PCB design for adequate protection against electrostatic discharge and voltage transients.
 
-**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
-- Header row with pipe separators: | Column1 | Column2 | Column3 |
-- Separator row with dashes: |---------|---------|---------|
-- Data rows with pipes: | data1 | data2 | data3 |
+${FORMATTING_CONSTRAINTS}
 
 ## Instructions
+
+${CHECK_LIBRARIES.protection}
 
 Using the provided PCB analysis JSON, evaluate ESD and transient protection:
 
@@ -906,19 +956,18 @@ ESD protection effectiveness depends on layout.
 #### Suggestions (improved robustness)
 - [enhancements for better margin]
 
-IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.
+${RESPONSE_BOILERPLATE}
 `;
 
 export const THERMAL_ANALYSIS_PROMPT = `# Thermal Analysis and Reliability
 
 You are a thermal engineer reviewing a PCB design for heat management and long-term reliability.
 
-**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
-- Header row with pipe separators: | Column1 | Column2 | Column3 |
-- Separator row with dashes: |---------|---------|---------|
-- Data rows with pipes: | data1 | data2 | data3 |
+${FORMATTING_CONSTRAINTS}
 
 ## Instructions
+
+${CHECK_LIBRARIES.protection}
 
 Using the provided PCB analysis JSON, evaluate thermal characteristics and reliability implications:
 
@@ -1004,19 +1053,18 @@ Assuming Ta = [ambient]°C:
 #### Suggestions (improved margin)
 - [suggestions]
 
-IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.
+${RESPONSE_BOILERPLATE}
 `;
 
 export const TESTABILITY_DFA_PROMPT = `# Testability and Design for Assembly (DFA) Analysis
 
 You are a manufacturing engineer reviewing a PCB design for testability, debug access, and assembly considerations.
 
-**IMPORTANT FORMATTING**: Use proper markdown tables with pipe (|) delimiters. Tables must have:
-- Header row with pipe separators: | Column1 | Column2 | Column3 |
-- Separator row with dashes: |---------|---------|---------|
-- Data rows with pipes: | data1 | data2 | data3 |
+${FORMATTING_CONSTRAINTS}
 
 ## Instructions
+
+${CHECK_LIBRARIES.testing}
 
 Using the provided PCB analysis JSON, evaluate testability and assembly characteristics:
 
@@ -1136,129 +1184,140 @@ For AOI and manual inspection.
 #### Suggestions (improved manufacturability)
 - [nice-to-have improvements]
 
-IMPORTANT: Do NOT repeat the PCB description or JSON data in your response. Only provide your analysis and recommendations.
+${RESPONSE_BOILERPLATE}
 `;
 
 // Prompt configurations with metadata
 export const PROMPTS: PromptConfig[] = [
   {
     id: 'general-review',
+    minChecks: 8,
     name: 'General Review',
     shortDescription: 'Comprehensive design review covering all aspects',
     description: 'A complete design review analyzing components, power, signals, manufacturing, and cross-reference issues. Good starting point for any design.',
     category: 'general',
     jsonFiles: ['summary', 'components', 'power', 'signals', 'dfm'],
-    prompt: withStructuredOutputContract(GENERAL_REVIEW_PROMPT),
+    prompt: withStructuredOutputContract(GENERAL_REVIEW_PROMPT, 'general-review', 8),
     estimatedTokens: 2000,
     recommended: true,
   },
   {
     id: 'power-analysis',
+    minChecks: 6,
     name: 'Power Architecture',
     shortDescription: 'Power rails, regulators, and decoupling analysis',
     description: 'Detailed analysis of power distribution, voltage regulators, decoupling capacitors, and thermal considerations for power components.',
     category: 'power',
     jsonFiles: ['power', 'summary'],
-    prompt: withStructuredOutputContract(POWER_ANALYSIS_PROMPT),
+    prompt: withStructuredOutputContract(POWER_ANALYSIS_PROMPT, 'power-analysis', 6),
     estimatedTokens: 1500,
     recommended: true,
   },
   {
     id: 'signal-integrity',
+    minChecks: 6,
     name: 'Signal Integrity',
     shortDescription: 'Differential pairs, impedance, high-speed routing',
     description: 'Analysis of differential pairs, length matching, impedance considerations, via impact on high-speed signals, and layer usage.',
     category: 'signal',
     jsonFiles: ['signals', 'summary'],
-    prompt: withStructuredOutputContract(SIGNAL_INTEGRITY_PROMPT),
+    prompt: withStructuredOutputContract(SIGNAL_INTEGRITY_PROMPT, 'signal-integrity', 6),
     estimatedTokens: 1500,
     recommended: true,
   },
   {
     id: 'dfm-analysis',
+    minChecks: 6,
     name: 'DFM Analysis',
     shortDescription: 'Manufacturability, via/trace specs, cost factors',
     description: 'Design for manufacturing review including via drill sizes, trace widths, layer count optimization, and fabricator compatibility.',
     category: 'manufacturing',
     jsonFiles: ['dfm', 'summary'],
-    prompt: withStructuredOutputContract(DFM_ANALYSIS_PROMPT),
+    prompt: withStructuredOutputContract(DFM_ANALYSIS_PROMPT, 'dfm-analysis', 6),
     estimatedTokens: 1500,
     recommended: true,
   },
   {
     id: 'component-bom',
+    minChecks: 6,
     name: 'Component/BOM',
     shortDescription: 'Component selection and bill of materials review',
     description: 'Analysis of component selection, design purpose detection, passive values, footprint consistency, and sourcing considerations.',
     category: 'components',
     jsonFiles: ['components', 'summary'],
-    prompt: withStructuredOutputContract(COMPONENT_BOM_PROMPT),
+    prompt: withStructuredOutputContract(COMPONENT_BOM_PROMPT, 'component-bom', 6),
     estimatedTokens: 1500,
     recommended: false,
   },
   {
     id: 'power-delivery',
+    minChecks: 6,
     name: 'Power Delivery',
     shortDescription: 'Current capacity and distribution analysis',
     description: 'Detailed power budget analysis including load identification, via/trace current capacity, copper pour effectiveness, and regulator sizing.',
     category: 'power',
     jsonFiles: ['power', 'summary'],
-    prompt: withStructuredOutputContract(POWER_DELIVERY_PROMPT),
+    prompt: withStructuredOutputContract(POWER_DELIVERY_PROMPT, 'power-delivery', 6),
     estimatedTokens: 1500,
     recommended: false,
   },
   {
     id: 'emi-analysis',
+    minChecks: 6,
     name: 'EMI/EMC Analysis',
     shortDescription: 'Electromagnetic interference assessment',
     description: 'EMC review including noise sources, loop areas, layer stackup for EMC, cable interface risks, and grounding analysis.',
     category: 'signal',
     jsonFiles: ['signals', 'power', 'summary'],
-    prompt: withStructuredOutputContract(EMI_ANALYSIS_PROMPT),
+    prompt: withStructuredOutputContract(EMI_ANALYSIS_PROMPT, 'emi-analysis', 6),
     estimatedTokens: 1500,
     recommended: false,
   },
   {
     id: 'overcurrent-protection',
+    minChecks: 5,
     name: 'Overcurrent Protection',
     shortDescription: 'Fuses, current limiting, fault analysis',
     description: 'Analysis of overcurrent protection including fuses, PTCs, current limit ICs, trace ratings, and fault coordination.',
     category: 'protection',
     jsonFiles: ['power', 'components', 'summary'],
-    prompt: withStructuredOutputContract(OVERCURRENT_PROTECTION_PROMPT),
+    prompt: withStructuredOutputContract(OVERCURRENT_PROTECTION_PROMPT, 'overcurrent-protection', 5),
     estimatedTokens: 1500,
     recommended: false,
   },
   {
     id: 'esd-protection',
+    minChecks: 5,
     name: 'ESD Protection',
     shortDescription: 'Electrostatic discharge protection review',
     description: 'ESD protection analysis including interface protection, TVS placement, signal integrity impact, and compliance estimates.',
     category: 'protection',
     jsonFiles: ['components', 'summary'],
-    prompt: withStructuredOutputContract(ESD_PROTECTION_PROMPT),
+    prompt: withStructuredOutputContract(ESD_PROTECTION_PROMPT, 'esd-protection', 5),
     estimatedTokens: 1500,
     recommended: false,
   },
   {
     id: 'thermal-analysis',
+    minChecks: 5,
     name: 'Thermal Analysis',
     shortDescription: 'Heat dissipation, junction temps, reliability',
     description: 'Thermal review including power dissipation, thermal vias, copper pour, junction temperatures, and component reliability.',
     category: 'protection',
     jsonFiles: ['power', 'summary'],
-    prompt: withStructuredOutputContract(THERMAL_ANALYSIS_PROMPT),
+    prompt: withStructuredOutputContract(THERMAL_ANALYSIS_PROMPT, 'thermal-analysis', 5),
     estimatedTokens: 1500,
     recommended: false,
   },
   {
     id: 'testability-dfa',
+    minChecks: 5,
     name: 'Testability/DFA',
     shortDescription: 'Test points, debug access, assembly review',
     description: 'Manufacturing test and assembly review including test point coverage, debug interfaces, ICT compatibility, and rework access.',
     category: 'testing',
     jsonFiles: ['components', 'dfm', 'summary'],
-    prompt: withStructuredOutputContract(TESTABILITY_DFA_PROMPT),
+    prompt: withStructuredOutputContract(TESTABILITY_DFA_PROMPT, 'testability-dfa', 5),
     estimatedTokens: 1500,
     recommended: false,
   },
