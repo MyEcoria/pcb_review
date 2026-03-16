@@ -19,6 +19,42 @@ export interface PromptConfig {
   recommended: boolean;
 }
 
+
+export const STRUCTURED_OUTPUT_CONTRACT = `
+## Structured Output Contract (Required)
+
+At the end of your response, include a machine-readable JSON block in a fenced code block using this exact heading and format:
+
+## Structured Checks (JSON)
+\`\`\`json
+{
+  "checks": [
+    {
+      "id": "short-kebab-id",
+      "title": "Check title",
+      "status": "pass|fail|warning",
+      "severity": "critical|high|medium|low|info",
+      "evidence": "Specific observation from the provided data",
+      "suggestion": "Concrete remediation action",
+      "category": "optional category name"
+    }
+  ]
+}
+\`\`\`
+
+Rules:
+- \`checks\` must be a JSON array with one entry per finding.
+- Every check MUST include status, severity, evidence, and suggestion.
+- If no issues are found, still include at least one \`pass\` check with rationale.
+- Keep narrative markdown sections above, but ensure this JSON block is valid JSON and appears exactly once at the end.
+`;
+
+export function withStructuredOutputContract(prompt: string): string {
+  return `${prompt}
+
+${STRUCTURED_OUTPUT_CONTRACT}`;
+}
+
 export const GENERAL_REVIEW_PROMPT = `# General PCB Design Review
 
 You are an expert PCB design engineer reviewing a KiCad project. Analyze the provided JSON data and provide a comprehensive design review.
@@ -1112,7 +1148,7 @@ export const PROMPTS: PromptConfig[] = [
     description: 'A complete design review analyzing components, power, signals, manufacturing, and cross-reference issues. Good starting point for any design.',
     category: 'general',
     jsonFiles: ['summary', 'components', 'power', 'signals', 'dfm'],
-    prompt: GENERAL_REVIEW_PROMPT,
+    prompt: withStructuredOutputContract(GENERAL_REVIEW_PROMPT),
     estimatedTokens: 2000,
     recommended: true,
   },
@@ -1123,7 +1159,7 @@ export const PROMPTS: PromptConfig[] = [
     description: 'Detailed analysis of power distribution, voltage regulators, decoupling capacitors, and thermal considerations for power components.',
     category: 'power',
     jsonFiles: ['power', 'summary'],
-    prompt: POWER_ANALYSIS_PROMPT,
+    prompt: withStructuredOutputContract(POWER_ANALYSIS_PROMPT),
     estimatedTokens: 1500,
     recommended: true,
   },
@@ -1134,7 +1170,7 @@ export const PROMPTS: PromptConfig[] = [
     description: 'Analysis of differential pairs, length matching, impedance considerations, via impact on high-speed signals, and layer usage.',
     category: 'signal',
     jsonFiles: ['signals', 'summary'],
-    prompt: SIGNAL_INTEGRITY_PROMPT,
+    prompt: withStructuredOutputContract(SIGNAL_INTEGRITY_PROMPT),
     estimatedTokens: 1500,
     recommended: true,
   },
@@ -1145,7 +1181,7 @@ export const PROMPTS: PromptConfig[] = [
     description: 'Design for manufacturing review including via drill sizes, trace widths, layer count optimization, and fabricator compatibility.',
     category: 'manufacturing',
     jsonFiles: ['dfm', 'summary'],
-    prompt: DFM_ANALYSIS_PROMPT,
+    prompt: withStructuredOutputContract(DFM_ANALYSIS_PROMPT),
     estimatedTokens: 1500,
     recommended: true,
   },
@@ -1156,7 +1192,7 @@ export const PROMPTS: PromptConfig[] = [
     description: 'Analysis of component selection, design purpose detection, passive values, footprint consistency, and sourcing considerations.',
     category: 'components',
     jsonFiles: ['components', 'summary'],
-    prompt: COMPONENT_BOM_PROMPT,
+    prompt: withStructuredOutputContract(COMPONENT_BOM_PROMPT),
     estimatedTokens: 1500,
     recommended: false,
   },
@@ -1167,7 +1203,7 @@ export const PROMPTS: PromptConfig[] = [
     description: 'Detailed power budget analysis including load identification, via/trace current capacity, copper pour effectiveness, and regulator sizing.',
     category: 'power',
     jsonFiles: ['power', 'summary'],
-    prompt: POWER_DELIVERY_PROMPT,
+    prompt: withStructuredOutputContract(POWER_DELIVERY_PROMPT),
     estimatedTokens: 1500,
     recommended: false,
   },
@@ -1178,7 +1214,7 @@ export const PROMPTS: PromptConfig[] = [
     description: 'EMC review including noise sources, loop areas, layer stackup for EMC, cable interface risks, and grounding analysis.',
     category: 'signal',
     jsonFiles: ['signals', 'power', 'summary'],
-    prompt: EMI_ANALYSIS_PROMPT,
+    prompt: withStructuredOutputContract(EMI_ANALYSIS_PROMPT),
     estimatedTokens: 1500,
     recommended: false,
   },
@@ -1189,7 +1225,7 @@ export const PROMPTS: PromptConfig[] = [
     description: 'Analysis of overcurrent protection including fuses, PTCs, current limit ICs, trace ratings, and fault coordination.',
     category: 'protection',
     jsonFiles: ['power', 'components', 'summary'],
-    prompt: OVERCURRENT_PROTECTION_PROMPT,
+    prompt: withStructuredOutputContract(OVERCURRENT_PROTECTION_PROMPT),
     estimatedTokens: 1500,
     recommended: false,
   },
@@ -1200,7 +1236,7 @@ export const PROMPTS: PromptConfig[] = [
     description: 'ESD protection analysis including interface protection, TVS placement, signal integrity impact, and compliance estimates.',
     category: 'protection',
     jsonFiles: ['components', 'summary'],
-    prompt: ESD_PROTECTION_PROMPT,
+    prompt: withStructuredOutputContract(ESD_PROTECTION_PROMPT),
     estimatedTokens: 1500,
     recommended: false,
   },
@@ -1211,7 +1247,7 @@ export const PROMPTS: PromptConfig[] = [
     description: 'Thermal review including power dissipation, thermal vias, copper pour, junction temperatures, and component reliability.',
     category: 'protection',
     jsonFiles: ['power', 'summary'],
-    prompt: THERMAL_ANALYSIS_PROMPT,
+    prompt: withStructuredOutputContract(THERMAL_ANALYSIS_PROMPT),
     estimatedTokens: 1500,
     recommended: false,
   },
@@ -1222,7 +1258,7 @@ export const PROMPTS: PromptConfig[] = [
     description: 'Manufacturing test and assembly review including test point coverage, debug interfaces, ICT compatibility, and rework access.',
     category: 'testing',
     jsonFiles: ['components', 'dfm', 'summary'],
-    prompt: TESTABILITY_DFA_PROMPT,
+    prompt: withStructuredOutputContract(TESTABILITY_DFA_PROMPT),
     estimatedTokens: 1500,
     recommended: false,
   },

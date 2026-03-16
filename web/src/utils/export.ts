@@ -1,4 +1,17 @@
-import type { ReviewResult, AnalysisResult } from '../types';
+import type { ReviewResult, AnalysisResult, ReviewScoreSummary } from '../types';
+
+
+function buildAggregateScoreSummary(results: ReviewResult[]): ReviewScoreSummary {
+  return results.reduce<ReviewScoreSummary>((acc, result) => {
+    if (!result.scoreSummary) return acc;
+    acc.total += result.scoreSummary.total;
+    acc.passed += result.scoreSummary.passed;
+    acc.failed += result.scoreSummary.failed;
+    acc.warnings += result.scoreSummary.warnings;
+    acc.score += result.scoreSummary.score;
+    return acc;
+  }, { total: 0, passed: 0, failed: 0, warnings: 0, score: 0 });
+}
 
 /**
  * Export review results as Markdown
@@ -6,9 +19,11 @@ import type { ReviewResult, AnalysisResult } from '../types';
 export function exportAsMarkdown(
   results: ReviewResult[],
   analysisResult: AnalysisResult | null,
-  description: string
+  description: string,
+  scoreSummary?: ReviewScoreSummary
 ): string {
   const parts: string[] = [];
+  const aggregateScore = scoreSummary ?? buildAggregateScoreSummary(results);
 
   // Title
   parts.push('# PCB Design Review Report');
@@ -23,6 +38,16 @@ export function exportAsMarkdown(
     parts.push(description.trim());
     parts.push('');
   }
+
+
+  // Structured score summary
+  parts.push('## Structured Review Score');
+  parts.push('');
+  parts.push(`- **Score**: ${aggregateScore.score} / ${aggregateScore.total}`);
+  parts.push(`- **Pass**: ${aggregateScore.passed}`);
+  parts.push(`- **Fail**: ${aggregateScore.failed}`);
+  parts.push(`- **Warning**: ${aggregateScore.warnings}`);
+  parts.push('');
 
   // Board Summary
   if (analysisResult) {
@@ -97,9 +122,10 @@ export function downloadFile(content: string, filename: string, mimeType: string
 export function downloadMarkdown(
   results: ReviewResult[],
   analysisResult: AnalysisResult | null,
-  description: string
+  description: string,
+  scoreSummary?: ReviewScoreSummary
 ): void {
-  const markdown = exportAsMarkdown(results, analysisResult, description);
+  const markdown = exportAsMarkdown(results, analysisResult, description, scoreSummary);
   const timestamp = new Date().toISOString().split('T')[0];
   downloadFile(markdown, `pcb-review-${timestamp}.md`, 'text/markdown');
 }
@@ -112,7 +138,8 @@ export function exportAsPDF(
   results: ReviewResult[],
   analysisResult: AnalysisResult | null,
   executiveSummary: string,
-  description: string
+  description: string,
+  scoreSummary?: ReviewScoreSummary
 ): void {
   // Create a new window with print-friendly styles
   const printWindow = window.open('', '_blank');
@@ -121,6 +148,7 @@ export function exportAsPDF(
     return;
   }
 
+  const aggregateScore = scoreSummary ?? buildAggregateScoreSummary(results);
   const successfulResults = results.filter(r => !r.error && r.response);
   const failedResults = results.filter(r => r.error);
 
@@ -132,6 +160,17 @@ export function exportAsPDF(
   content += `<p style="color: #666; margin: 0;">${new Date().toLocaleString()}</p>`;
   content += `<h1>PCB Design Review Report</h1>`;
   content += `</header>`;
+
+
+  content += `<section>`;
+  content += `<h2>Structured Review Score</h2>`;
+  content += `<table><tbody>`;
+  content += `<tr><td><strong>Score</strong></td><td>${aggregateScore.score} / ${aggregateScore.total}</td></tr>`;
+  content += `<tr><td><strong>Pass</strong></td><td>${aggregateScore.passed}</td></tr>`;
+  content += `<tr><td><strong>Fail</strong></td><td>${aggregateScore.failed}</td></tr>`;
+  content += `<tr><td><strong>Warning</strong></td><td>${aggregateScore.warnings}</td></tr>`;
+  content += `</tbody></table>`;
+  content += `</section>`;
 
   // Description (render as markdown since users may paste README content)
   if (description.trim()) {

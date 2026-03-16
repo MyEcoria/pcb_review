@@ -33,8 +33,33 @@ export interface ReviewResult {
   promptId: string;
   promptName: string;
   response: string;
+  checks?: ReviewCheck[];
+  scoreSummary?: ReviewScoreSummary;
   error?: string;
   timestamp: number;
+}
+
+export interface ReviewCheck {
+  id: string;
+  title: string;
+  status: 'pass' | 'fail' | 'warning';
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  evidence: string;
+  suggestion: string;
+  category?: string;
+}
+
+export interface ReviewScoreSummary {
+  total: number;
+  passed: number;
+  failed: number;
+  warnings: number;
+  score: number;
+}
+
+export interface ScoredReviewResult extends ReviewResult {
+  checks: ReviewCheck[];
+  scoreSummary: ReviewScoreSummary;
 }
 
 export interface ChatMessage {

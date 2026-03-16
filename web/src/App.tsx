@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { Header } from './components/Header/Header';
@@ -13,7 +13,7 @@ import { SlideOutChat } from './components/SlideOutChat/SlideOutChat';
 import { HelpModal } from './components/HelpModal/HelpModal';
 import { getDefaultModel } from './api/llm';
 import { downloadMarkdown, exportAsPDF } from './utils/export';
-import type { Settings, UploadedFile, AnalysisResult, ReviewResult, LLMConfig, ReviewStatus } from './types';
+import type { Settings, UploadedFile, AnalysisResult, ReviewResult, LLMConfig, ReviewScoreSummary, ReviewStatus } from './types';
 import './styles/global.css';
 import styles from './App.module.css';
 
@@ -126,6 +126,29 @@ export default function App() {
     setAnalysisResult(result);
   }, []);
 
+
+  const aggregateScoreSummary = useMemo<ReviewScoreSummary>(() => {
+    return reviewResults.reduce<ReviewScoreSummary>((acc, result) => {
+      const summary = result.scoreSummary;
+      if (!summary) {
+        return acc;
+      }
+
+      acc.total += summary.total;
+      acc.passed += summary.passed;
+      acc.failed += summary.failed;
+      acc.warnings += summary.warnings;
+      acc.score += summary.score;
+      return acc;
+    }, {
+      total: 0,
+      passed: 0,
+      failed: 0,
+      warnings: 0,
+      score: 0,
+    });
+  }, [reviewResults]);
+
   const handleReviewComplete = useCallback((results: ReviewResult[], summary: string) => {
     setReviewResults(results);
     setExecutiveSummary(summary);
@@ -182,12 +205,12 @@ export default function App() {
   }, []);
 
   const handleExportMarkdown = useCallback(() => {
-    downloadMarkdown(reviewResults, analysisResult, description);
-  }, [reviewResults, analysisResult, description]);
+    downloadMarkdown(reviewResults, analysisResult, description, aggregateScoreSummary);
+  }, [reviewResults, analysisResult, description, aggregateScoreSummary]);
 
   const handleExportPDF = useCallback(() => {
-    exportAsPDF(reviewResults, analysisResult, executiveSummary, description);
-  }, [reviewResults, analysisResult, executiveSummary, description]);
+    exportAsPDF(reviewResults, analysisResult, executiveSummary, description, aggregateScoreSummary);
+  }, [reviewResults, analysisResult, executiveSummary, description, aggregateScoreSummary]);
 
   // Results View
   if (currentView === 'results') {
@@ -201,6 +224,7 @@ export default function App() {
             onBack={handleBackToMain}
             onExportMarkdown={handleExportMarkdown}
             onExportPDF={handleExportPDF}
+            scoreSummary={aggregateScoreSummary}
           />
         </div>
         {/* Slide-out Chat Panel */}
