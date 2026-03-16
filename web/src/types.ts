@@ -1,6 +1,6 @@
 // Application types
 
-export type Provider = 'openai' | 'anthropic' | 'gemini';
+export type Provider = 'openai' | 'anthropic' | 'gemini' | 'ollama_cloud' | 'openai_compatible';
 export type Theme = 'auto' | 'light' | 'dark';
 export type ReviewStatus = 'idle' | 'running' | 'complete' | 'error' | 'cancelled';
 
@@ -8,6 +8,8 @@ export interface Settings {
   provider: Provider;
   model: string;
   apiKey: string;
+  baseUrl?: string;
+  organization?: string;
   saveApiKey: boolean;
   theme: Theme;
 }
@@ -16,6 +18,8 @@ export interface LLMConfig {
   provider: Provider;
   model: string;
   apiKey: string;
+  baseUrl?: string;
+  organization?: string;
 }
 
 export interface UploadedFile {
