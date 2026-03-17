@@ -254,6 +254,23 @@ export function SettingsPanel({
               </p>
             )}
           </div>
+
+          <div className={styles.field}>
+            <label className={styles.label}>Analysis depth</label>
+            <select
+              className={styles.select}
+              value={localSettings.analysisDepthMode}
+              onChange={(e) =>
+                setLocalSettings(prev => ({
+                  ...prev,
+                  analysisDepthMode: e.target.value === 'fast' ? 'fast' : 'full',
+                }))
+              }
+            >
+              <option value="full">Full mode (maximum detail)</option>
+              <option value="fast">Fast mode (summarized payloads, lower latency)</option>
+            </select>
+          </div>
         </div>
 
         <div className={styles.footer}>

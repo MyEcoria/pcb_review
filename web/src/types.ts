@@ -12,6 +12,7 @@ export interface Settings {
   organization?: string;
   saveApiKey: boolean;
   theme: Theme;
+  analysisDepthMode: 'fast' | 'full';
 }
 
 export interface LLMConfig {

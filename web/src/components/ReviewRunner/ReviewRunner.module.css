@@ -21,6 +21,7 @@
   transition: all var(--transition-fast);
 }
 
+
 .runButton:hover:not(:disabled) {
   background: var(--color-accent-dark);
   transform: translateY(-1px);
@@ -35,6 +36,16 @@
   font-size: var(--text-sm);
   color: var(--color-text-muted);
   margin: 0;
+}
+
+.guardrailMessage {
+  width: 100%;
+  margin: 0;
+  padding: var(--spacing-sm);
+  font-size: var(--text-sm);
+  color: var(--color-warning);
+  background: var(--color-warning-light);
+  border-radius: var(--radius-md);
 }
 
 .configureLink {
