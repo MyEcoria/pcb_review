@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ReviewResult, AnalysisResult, ReviewCheck, ReviewScoreSummary } from '../../types';
+import type { ReviewResult, AnalysisResult, ReviewCheck, ReviewScoreSummary, RunMetadata, RunComparisonSummary } from '../../types';
 import styles from './ResultsView.module.css';
 
 interface ResultsViewProps {
@@ -12,6 +12,8 @@ interface ResultsViewProps {
   onExportMarkdown: () => void;
   onExportPDF: () => void;
   scoreSummary: ReviewScoreSummary;
+  runMetadata: RunMetadata | null;
+  comparisonSummary: RunComparisonSummary | null;
 }
 
 export function ResultsView({
@@ -22,6 +24,8 @@ export function ResultsView({
   onExportMarkdown,
   onExportPDF,
   scoreSummary,
+  runMetadata,
+  comparisonSummary,
 }: ResultsViewProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [allExpanded, setAllExpanded] = useState(false);
@@ -240,6 +244,41 @@ export function ResultsView({
           <span className={styles.warningCounter}>Warning: {scoreSummary.warnings}</span>
         </div>
       </section>
+
+
+      {runMetadata && (
+        <section className={styles.scoreCard}>
+          <h2 className={styles.summaryTitle}>Run Metadata</h2>
+          <p className={styles.description}>Run ID: {runMetadata.runId}</p>
+          <p className={styles.description}>Timestamp: {new Date(runMetadata.timestamp).toLocaleString()}</p>
+          <p className={styles.description}>Model: {runMetadata.provider} / {runMetadata.model}</p>
+          <p className={styles.description}>Selected analyses: {runMetadata.selectedAnalyses.join(', ')}</p>
+        </section>
+      )}
+
+      {comparisonSummary && (
+        <section className={styles.scoreCard}>
+          <h2 className={styles.summaryTitle}>Compare Runs</h2>
+          <p className={styles.description}>Compared to run from {new Date(comparisonSummary.comparedTo.timestamp).toLocaleString()}</p>
+          <div className={styles.scoreCounters}>
+            <span className={styles.passCounter}>Δ Pass: {comparisonSummary.delta.passed >= 0 ? '+' : ''}{comparisonSummary.delta.passed}</span>
+            <span className={styles.failCounter}>Δ Fail: {comparisonSummary.delta.failed >= 0 ? '+' : ''}{comparisonSummary.delta.failed}</span>
+            <span className={styles.warningCounter}>Δ Warning: {comparisonSummary.delta.warnings >= 0 ? '+' : ''}{comparisonSummary.delta.warnings}</span>
+          </div>
+          {comparisonSummary.newFailures.length > 0 && (
+            <div>
+              <h3 className={styles.suggestionGroupTitle}>Newly Introduced Failures</h3>
+              <ul className={styles.suggestionList}>
+                {comparisonSummary.newFailures.map((failure, idx) => (
+                  <li key={`${failure.promptName}-${failure.checkTitle}-${idx}`} className={styles.suggestionItem}>
+                    <strong>{failure.promptName}</strong>: {failure.checkTitle} ({failure.severity})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
 
       <section className={styles.triagePanel}>
         <h2 className={styles.summaryTitle}>Issue Triage</h2>

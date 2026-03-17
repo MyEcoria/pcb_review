@@ -1,4 +1,4 @@
-import type { ReviewResult, AnalysisResult, ReviewScoreSummary } from '../types';
+import type { ReviewResult, AnalysisResult, ReviewScoreSummary, RunMetadata } from '../types';
 
 
 function buildAggregateScoreSummary(results: ReviewResult[]): ReviewScoreSummary {
@@ -20,7 +20,8 @@ export function exportAsMarkdown(
   results: ReviewResult[],
   analysisResult: AnalysisResult | null,
   description: string,
-  scoreSummary?: ReviewScoreSummary
+  scoreSummary?: ReviewScoreSummary,
+  runMetadata?: RunMetadata | null
 ): string {
   const parts: string[] = [];
   const aggregateScore = scoreSummary ?? buildAggregateScoreSummary(results);
@@ -39,6 +40,17 @@ export function exportAsMarkdown(
     parts.push('');
   }
 
+
+
+  if (runMetadata) {
+    parts.push('## Run Metadata');
+    parts.push('');
+    parts.push(`- **Run ID**: ${runMetadata.runId}`);
+    parts.push(`- **Timestamp**: ${new Date(runMetadata.timestamp).toLocaleString()}`);
+    parts.push(`- **Provider/Model**: ${runMetadata.provider} / ${runMetadata.model}`);
+    parts.push(`- **Selected Analyses**: ${runMetadata.selectedAnalyses.join(', ')}`);
+    parts.push('');
+  }
 
   // Structured score summary
   parts.push('## Structured Review Score');
@@ -123,9 +135,10 @@ export function downloadMarkdown(
   results: ReviewResult[],
   analysisResult: AnalysisResult | null,
   description: string,
-  scoreSummary?: ReviewScoreSummary
+  scoreSummary?: ReviewScoreSummary,
+  runMetadata?: RunMetadata | null
 ): void {
-  const markdown = exportAsMarkdown(results, analysisResult, description, scoreSummary);
+  const markdown = exportAsMarkdown(results, analysisResult, description, scoreSummary, runMetadata);
   const timestamp = new Date().toISOString().split('T')[0];
   downloadFile(markdown, `pcb-review-${timestamp}.md`, 'text/markdown');
 }
@@ -139,7 +152,8 @@ export function exportAsPDF(
   analysisResult: AnalysisResult | null,
   executiveSummary: string,
   description: string,
-  scoreSummary?: ReviewScoreSummary
+  scoreSummary?: ReviewScoreSummary,
+  runMetadata?: RunMetadata | null
 ): void {
   // Create a new window with print-friendly styles
   const printWindow = window.open('', '_blank');
@@ -157,6 +171,20 @@ export function exportAsPDF(
 
   // Header
   content += `<header style="text-align: center; margin-bottom: 32px;">`;
+
+  if (runMetadata) {
+    content += `<section>`;
+    content += `<h2>Run Metadata</h2>`;
+    content += `<table><tbody>`;
+    content += `<tr><td><strong>Run ID</strong></td><td>${escapeHtml(runMetadata.runId)}</td></tr>`;
+    content += `<tr><td><strong>Timestamp</strong></td><td>${new Date(runMetadata.timestamp).toLocaleString()}</td></tr>`;
+    content += `<tr><td><strong>Provider / Model</strong></td><td>${escapeHtml(runMetadata.provider)} / ${escapeHtml(runMetadata.model)}</td></tr>`;
+    content += `<tr><td><strong>Selected Analyses</strong></td><td>${escapeHtml(runMetadata.selectedAnalyses.join(', '))}</td></tr>`;
+    content += `</tbody></table>`;
+    content += `</section>`;
+  }
+
+
   content += `<p style="color: #666; margin: 0;">${new Date().toLocaleString()}</p>`;
   content += `<h1>PCB Design Review Report</h1>`;
   content += `</header>`;
