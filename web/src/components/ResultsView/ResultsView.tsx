@@ -25,6 +25,10 @@ export function ResultsView({
 }: ResultsViewProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [allExpanded, setAllExpanded] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | ReviewCheck['status']>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [severityFilter, setSeverityFilter] = useState<'all' | ReviewCheck['severity']>('all');
+  const [groupBy, setGroupBy] = useState<'category' | 'severity'>('category');
 
   const successfulResults = useMemo(
     () => results.filter(r => !r.error && r.response),
@@ -42,6 +46,46 @@ export function ResultsView({
     [successfulResults]
   );
 
+  const normalizedIssues = useMemo(
+    () => successfulResults.flatMap(result =>
+      (result.checks ?? []).map(check => ({
+        ...check,
+        promptId: result.promptId,
+        promptName: result.promptName,
+      }))
+    ),
+    [successfulResults]
+  );
+
+  const categories = useMemo(
+    () => Array.from(new Set(normalizedIssues.map(issue => issue.category?.trim()).filter(Boolean))) as string[],
+    [normalizedIssues]
+  );
+
+  const filteredIssues = useMemo(
+    () => normalizedIssues.filter(issue => {
+      if (statusFilter !== 'all' && issue.status !== statusFilter) return false;
+      if (severityFilter !== 'all' && issue.severity !== severityFilter) return false;
+      if (categoryFilter !== 'all' && (issue.category ?? 'uncategorized') !== categoryFilter) return false;
+      return true;
+    }),
+    [normalizedIssues, statusFilter, severityFilter, categoryFilter]
+  );
+
+  const groupedIssues = useMemo(() => {
+    const groups = new Map<string, typeof filteredIssues>();
+    filteredIssues.forEach(issue => {
+      const groupKey = groupBy === 'category' ? issue.category ?? 'uncategorized' : issue.severity;
+      const group = groups.get(groupKey) ?? [];
+      group.push(issue);
+      groups.set(groupKey, group);
+    });
+
+    return Array.from(groups.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, issues]) => ({ key, issues }));
+  }, [filteredIssues, groupBy]);
+
   const suggestionsBySeverity = useMemo(() => {
     const severities: Array<ReviewCheck['severity']> = ['critical', 'high', 'medium', 'low', 'info'];
     return severities
@@ -51,6 +95,29 @@ export function ResultsView({
       }))
       .filter(group => group.checks.length > 0);
   }, [allChecks]);
+
+  const fixSuggestionBullets = useMemo(
+    () => filteredIssues
+      .filter(issue => issue.suggestion.trim())
+      .map(issue => `- [${issue.severity.toUpperCase()}][${issue.status.toUpperCase()}] ${issue.title} (${issue.category ?? 'uncategorized'}) — ${issue.suggestion}`),
+    [filteredIssues]
+  );
+
+  const exportFixSuggestions = () => {
+    const content = fixSuggestionBullets.join('\n');
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'fix-suggestions.txt';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyFixSuggestions = async () => {
+    if (!fixSuggestionBullets.length || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(fixSuggestionBullets.join('\n'));
+  };
 
 
   // Generate short summary for each section
@@ -174,9 +241,78 @@ export function ResultsView({
         </div>
       </section>
 
+      <section className={styles.triagePanel}>
+        <h2 className={styles.summaryTitle}>Issue Triage</h2>
+        <div className={styles.filterRow}>
+          <label className={styles.filterLabel}>
+            Status
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as 'all' | ReviewCheck['status'])}>
+              <option value="all">All</option>
+              <option value="pass">Pass</option>
+              <option value="fail">Fail</option>
+              <option value="warning">Warning</option>
+            </select>
+          </label>
+          <label className={styles.filterLabel}>
+            Category
+            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
+              <option value="all">All</option>
+              {categories.map(category => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+              <option value="uncategorized">uncategorized</option>
+            </select>
+          </label>
+          <label className={styles.filterLabel}>
+            Severity
+            <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value as 'all' | ReviewCheck['severity'])}>
+              <option value="all">All</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+              <option value="info">Info</option>
+            </select>
+          </label>
+        </div>
+        <div className={styles.groupToggleRow}>
+          <button className={styles.expandAllButton} onClick={() => setGroupBy('category')}>By category</button>
+          <button className={styles.expandAllButton} onClick={() => setGroupBy('severity')}>By severity</button>
+        </div>
+
+        {groupedIssues.map(group => (
+          <div key={group.key} className={styles.issueGroup}>
+            <h3 className={styles.suggestionGroupTitle}>{group.key} ({group.issues.length})</h3>
+            <div className={styles.issueList}>
+              {group.issues.map(issue => (
+                <article key={`${issue.promptId}-${issue.id}`} className={styles.issueCard}>
+                  <div className={styles.issueHeader}>
+                    <strong>{issue.title}</strong>
+                    <span className={styles.issueMeta}>{issue.status} • {issue.severity}</span>
+                  </div>
+                  <p className={styles.issueEvidence}>{issue.evidence}</p>
+                  {issue.suggestion && <p className={styles.issueSuggestion}><strong>Suggested fix:</strong> {issue.suggestion}</p>}
+                  <button className={styles.tocLink} onClick={() => scrollToSection(issue.promptId)}>
+                    Jump to source analysis: {issue.promptName}
+                  </button>
+                </article>
+              ))}
+            </div>
+          </div>
+        ))}
+      </section>
+
       {suggestionsBySeverity.length > 0 && (
         <section className={styles.suggestionsPanel}>
-          <h2 className={styles.summaryTitle}>Suggestions by Severity</h2>
+          <h2 className={styles.summaryTitle}>Fix Suggestions</h2>
+          <p className={styles.description}>Copy or export this remediation list for ticketing and implementation tracking.</p>
+          <div className={styles.groupToggleRow}>
+            <button className={styles.expandAllButton} onClick={copyFixSuggestions}>Copy bullets</button>
+            <button className={styles.expandAllButton} onClick={exportFixSuggestions}>Export bullets</button>
+          </div>
+          {fixSuggestionBullets.length > 0 && (
+            <pre className={styles.fixSuggestionsText}>{fixSuggestionBullets.join('\n')}</pre>
+          )}
           {suggestionsBySeverity.map(group => (
             <div key={group.severity} className={styles.suggestionGroup}>
               <h3 className={styles.suggestionGroupTitle}>{group.severity.toUpperCase()}</h3>
