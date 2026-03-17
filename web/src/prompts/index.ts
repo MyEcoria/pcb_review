@@ -3,8 +3,8 @@
  * Contains all analysis prompts with metadata for the web app
  */
 
-// Import fab capabilities from shared markdown file (in project root)
-import FAB_CAPABILITIES_REFERENCE from '../../../fab-capabilities.md?raw';
+// Import fab capabilities reference from local markdown file
+import FAB_CAPABILITIES_REFERENCE from '../../fab-capabilities.md?raw';
 export { FAB_CAPABILITIES_REFERENCE };
 
 export interface PromptConfig {
