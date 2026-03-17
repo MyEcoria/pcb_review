@@ -1,0 +1,11 @@
+node_modules
+dist
+.git
+.gitignore
+*.log
+.npmrc
+.env
+.env.*
+.vscode
+.idea
+coverage
