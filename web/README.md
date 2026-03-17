@@ -30,16 +30,10 @@ Use this for providers exposing OpenAI Chat Completions-compatible endpoints.
 
 ## Docker
 
-Build the production image using the web-specific Dockerfile:
+Build the production image from the repository root:
 
 ```bash
 docker build -t pcb-review-web ./web
-```
-
-For platforms that require a repository-root `Dockerfile` (for example Coolify defaults), build from the repo root:
-
-```bash
-docker build -t pcb-review-web .
 ```
 
 Run the container on port 8080:
