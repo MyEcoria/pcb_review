@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { Header } from './components/Header/Header';
+import { HistoryPanel } from './components/HistoryPanel/HistoryPanel';
 import { SettingsPanel } from './components/SettingsPanel/SettingsPanel';
 import { FileUpload } from './components/FileUpload/FileUpload';
 import { DescriptionInput } from './components/DescriptionInput/DescriptionInput';
@@ -13,7 +14,7 @@ import { SlideOutChat } from './components/SlideOutChat/SlideOutChat';
 import { HelpModal } from './components/HelpModal/HelpModal';
 import { getDefaultModel } from './api/llm';
 import { downloadMarkdown, exportAsPDF } from './utils/export';
-import type { Settings, UploadedFile, AnalysisResult, ReviewResult, LLMConfig, ReviewScoreSummary, ReviewStatus } from './types';
+import type { Settings, UploadedFile, AnalysisResult, ReviewResult, LLMConfig, ReviewScoreSummary, ReviewStatus, ReviewRunHistory, RunComparisonSummary, RunMetadata } from './types';
 import './styles/global.css';
 import styles from './App.module.css';
 
@@ -68,8 +69,8 @@ export default function App() {
   const [reviewResults, setReviewResults] = useState<ReviewResult[]>([]);
   const [executiveSummary, setExecutiveSummary] = useState<string>('');
 
-  // View state: 'main' or 'results'
-  const [currentView, setCurrentView] = useState<'main' | 'results'>('main');
+  // View state
+  const [currentView, setCurrentView] = useState<'main' | 'results' | 'history'>('main');
 
   // Chat state
   const [chatOpen, setChatOpen] = useState(false);
@@ -82,6 +83,50 @@ export default function App() {
   const [streamingContent, setStreamingContent] = useState('');
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const cancelAnalysisRef = useRef<(() => void) | null>(null);
+
+  const [runHistory, setRunHistory] = useLocalStorage<ReviewRunHistory[]>(
+    'pcb-review-history',
+    []
+  );
+  const [activeRunMetadata, setActiveRunMetadata] = useState<RunMetadata | null>(null);
+  const [comparisonSummary, setComparisonSummary] = useState<RunComparisonSummary | null>(null);
+
+  const buildComparisonSummary = useCallback((currentRun: ReviewRunHistory, baselineRun: ReviewRunHistory): RunComparisonSummary => {
+    const baselineFailures = new Set(
+      baselineRun.resultsSnapshot.flatMap(result =>
+        (result.checks ?? [])
+          .filter(check => check.status === 'fail')
+          .map(check => `${result.promptName}::${check.title}`)
+      )
+    );
+
+    const newFailures = currentRun.resultsSnapshot.flatMap(result =>
+      (result.checks ?? [])
+        .filter(check => check.status === 'fail')
+        .filter(check => !baselineFailures.has(`${result.promptName}::${check.title}`))
+        .map(check => ({
+          promptName: result.promptName,
+          checkTitle: check.title,
+          severity: check.severity,
+        }))
+    );
+
+    return {
+      comparedTo: {
+        runId: baselineRun.runId,
+        timestamp: baselineRun.timestamp,
+        provider: baselineRun.provider,
+        model: baselineRun.model,
+        selectedAnalyses: baselineRun.selectedAnalyses,
+      },
+      delta: {
+        passed: currentRun.scoreSummary.passed - baselineRun.scoreSummary.passed,
+        failed: currentRun.scoreSummary.failed - baselineRun.scoreSummary.failed,
+        warnings: currentRun.scoreSummary.warnings - baselineRun.scoreSummary.warnings,
+      },
+      newFailures,
+    };
+  }, []);
 
   // Build LLM config from settings
   const llmConfig: LLMConfig = {
@@ -154,7 +199,47 @@ export default function App() {
   const handleReviewComplete = useCallback((results: ReviewResult[], summary: string) => {
     setReviewResults(results);
     setExecutiveSummary(summary);
-  }, []);
+
+    const runScoreSummary = results.reduce<ReviewScoreSummary>((acc, result) => {
+      if (!result.scoreSummary) return acc;
+      acc.total += result.scoreSummary.total;
+      acc.passed += result.scoreSummary.passed;
+      acc.failed += result.scoreSummary.failed;
+      acc.warnings += result.scoreSummary.warnings;
+      acc.score += result.scoreSummary.score;
+      return acc;
+    }, { total: 0, passed: 0, failed: 0, warnings: 0, score: 0 });
+
+    const runTimestamp = Date.now();
+    const runId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `run-${runTimestamp}`;
+    const runEntry: ReviewRunHistory = {
+      runId,
+      timestamp: runTimestamp,
+      provider: settings.provider,
+      model: settings.model,
+      selectedAnalyses: [...selectedAnalyses],
+      scoreSummary: runScoreSummary,
+      resultsSnapshot: results,
+      executiveSummary: summary,
+      description,
+      analysisResult,
+    };
+
+    setRunHistory(prev => [runEntry, ...prev]);
+    setActiveRunMetadata({
+      runId: runEntry.runId,
+      timestamp: runEntry.timestamp,
+      provider: runEntry.provider,
+      model: runEntry.model,
+      selectedAnalyses: runEntry.selectedAnalyses,
+    });
+
+    if (runHistory.length > 0) {
+      setComparisonSummary(buildComparisonSummary(runEntry, runHistory[0]));
+    } else {
+      setComparisonSummary(null);
+    }
+  }, [settings.provider, settings.model, selectedAnalyses, aggregateScoreSummary, description, analysisResult, setRunHistory, runHistory, buildComparisonSummary]);
 
   const handlePartialResult = useCallback((result: ReviewResult) => {
     setReviewResults(prev => {
@@ -206,13 +291,44 @@ export default function App() {
     setCurrentView('main');
   }, []);
 
+  const handleOpenHistory = useCallback(() => {
+    setCurrentView('history');
+  }, []);
+
+  const handleLoadHistoryRun = useCallback((run: ReviewRunHistory) => {
+    setReviewResults(run.resultsSnapshot);
+    setExecutiveSummary(run.executiveSummary);
+    setAnalysisResult(run.analysisResult);
+    setDescription(run.description);
+    setSelectedAnalyses(run.selectedAnalyses);
+    setActiveRunMetadata({
+      runId: run.runId,
+      timestamp: run.timestamp,
+      provider: run.provider,
+      model: run.model,
+      selectedAnalyses: run.selectedAnalyses,
+    });
+
+    const baseline = runHistory.find(entry => entry.timestamp < run.timestamp);
+    setComparisonSummary(baseline ? buildComparisonSummary(run, baseline) : null);
+    setCurrentView('results');
+  }, [runHistory, buildComparisonSummary]);
+
+  const handleDeleteHistoryRun = useCallback((runId: string) => {
+    setRunHistory(prev => prev.filter(run => run.runId !== runId));
+  }, [setRunHistory]);
+
+  const handleClearHistory = useCallback(() => {
+    setRunHistory([]);
+  }, [setRunHistory]);
+
   const handleExportMarkdown = useCallback(() => {
-    downloadMarkdown(reviewResults, analysisResult, description, aggregateScoreSummary);
-  }, [reviewResults, analysisResult, description, aggregateScoreSummary]);
+    downloadMarkdown(reviewResults, analysisResult, description, aggregateScoreSummary, activeRunMetadata);
+  }, [reviewResults, analysisResult, description, aggregateScoreSummary, activeRunMetadata]);
 
   const handleExportPDF = useCallback(() => {
-    exportAsPDF(reviewResults, analysisResult, executiveSummary, description, aggregateScoreSummary);
-  }, [reviewResults, analysisResult, executiveSummary, description, aggregateScoreSummary]);
+    exportAsPDF(reviewResults, analysisResult, executiveSummary, description, aggregateScoreSummary, activeRunMetadata);
+  }, [reviewResults, analysisResult, executiveSummary, description, aggregateScoreSummary, activeRunMetadata]);
 
   // Results View
   if (currentView === 'results') {
@@ -227,6 +343,8 @@ export default function App() {
             onExportMarkdown={handleExportMarkdown}
             onExportPDF={handleExportPDF}
             scoreSummary={aggregateScoreSummary}
+            runMetadata={activeRunMetadata}
+            comparisonSummary={comparisonSummary}
           />
         </div>
         {/* Slide-out Chat Panel */}
@@ -242,6 +360,18 @@ export default function App() {
     );
   }
 
+  if (currentView === 'history') {
+    return (
+      <HistoryPanel
+        history={runHistory}
+        onBack={handleBackToMain}
+        onLoadRun={handleLoadHistoryRun}
+        onDeleteRun={handleDeleteHistoryRun}
+        onClearAll={handleClearHistory}
+      />
+    );
+  }
+
   // Main View
   return (
     <div className={styles.app}>
@@ -254,6 +384,11 @@ export default function App() {
 
       <main className={styles.main}>
         <div className={styles.container}>
+          <div className={styles.historyBar}>
+            <button className={styles.historyButton} onClick={handleOpenHistory}>
+              View Run History ({runHistory.length})
+            </button>
+          </div>
           {/* File Upload Section */}
           <section className={styles.section}>
             <FileUpload

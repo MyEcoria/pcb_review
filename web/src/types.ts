@@ -60,6 +60,36 @@ export interface ReviewScoreSummary {
   score: number;
 }
 
+export interface RunMetadata {
+  runId: string;
+  timestamp: number;
+  provider: Provider;
+  model: string;
+  selectedAnalyses: string[];
+}
+
+export interface ReviewRunHistory extends RunMetadata {
+  scoreSummary: ReviewScoreSummary;
+  resultsSnapshot: ReviewResult[];
+  executiveSummary: string;
+  description: string;
+  analysisResult: AnalysisResult | null;
+}
+
+export interface RunComparisonSummary {
+  comparedTo: RunMetadata;
+  delta: {
+    passed: number;
+    failed: number;
+    warnings: number;
+  };
+  newFailures: Array<{
+    promptName: string;
+    checkTitle: string;
+    severity: ReviewCheck['severity'];
+  }>;
+}
+
 export interface ScoredReviewResult extends ReviewResult {
   checks: ReviewCheck[];
   scoreSummary: ReviewScoreSummary;
