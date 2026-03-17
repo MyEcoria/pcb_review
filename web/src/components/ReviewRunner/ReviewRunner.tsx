@@ -14,6 +14,182 @@ interface ReviewRunnerProps {
   onStatusChange?: (status: ReviewStatus, progress: { current: number; total: number }, currentAnalysis: string, streamingContent: string, error: string | null) => void;
   onCancelRef?: React.MutableRefObject<(() => void) | null>;
   onOpenSettings?: () => void;
+  analysisDepthMode?: AnalysisDepthMode;
+}
+
+type AnalysisDepthMode = 'fast' | 'full';
+type DataDetailLevel = 'full' | 'summarized';
+
+interface PromptPayloadSet {
+  summary: unknown;
+  power: unknown;
+  signals: unknown;
+  components: unknown;
+  dfm: unknown;
+}
+
+interface PreprocessedPromptData {
+  payloads: PromptPayloadSet;
+  detailLevel: DataDetailLevel;
+  estimatedBytes: number;
+  estimatedTokens: number;
+}
+
+const DEFAULT_ARRAY_SAMPLE_SIZE = 40;
+const FAST_MODE_ARRAY_SAMPLE_SIZE = 20;
+const MAX_PROMPT_BYTES = 90_000;
+const MAX_PROMPT_TOKENS = 22_000;
+
+function estimateSize(text: string): { bytes: number; tokens: number } {
+  const bytes = new TextEncoder().encode(text).length;
+  return { bytes, tokens: Math.ceil(bytes / 4) };
+}
+
+function summarizeArray(value: unknown, key: string, sampleSize: number): unknown {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  if (value.length <= sampleSize) {
+    return value;
+  }
+
+  const stride = Math.max(1, Math.floor(value.length / sampleSize));
+  const sample: unknown[] = [];
+  for (let i = 0; i < value.length && sample.length < sampleSize; i += stride) {
+    sample.push(value[i]);
+  }
+
+  const rangeSummary = value
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    .reduce<Record<string, { min?: number; max?: number }>>((acc, item) => {
+      for (const [itemKey, itemValue] of Object.entries(item)) {
+        if (typeof itemValue !== 'number' || !Number.isFinite(itemValue)) {
+          continue;
+        }
+        const current = acc[itemKey] || {};
+        current.min = current.min === undefined ? itemValue : Math.min(current.min, itemValue);
+        current.max = current.max === undefined ? itemValue : Math.max(current.max, itemValue);
+        acc[itemKey] = current;
+      }
+      return acc;
+    }, {});
+
+  return {
+    summaryType: `${key}-sample`,
+    totalCount: value.length,
+    sampledCount: sample.length,
+    sampleStride: stride,
+    numericRanges: rangeSummary,
+    representativeSample: sample,
+  };
+}
+
+function summarizeRecordArrays(record: Record<string, unknown>, keyPrefix: string, sampleSize: number): Record<string, unknown> {
+  return Object.entries(record).reduce<Record<string, unknown>>((acc, [key, val]) => {
+    acc[key] = summarizeArray(val, `${keyPrefix}.${key}`, sampleSize);
+    return acc;
+  }, {});
+}
+
+function buildPromptPayloads(
+  analysisResult: AnalysisResult,
+  detailLevel: DataDetailLevel,
+  depthMode: AnalysisDepthMode,
+): PromptPayloadSet {
+  const sampleSize = depthMode === 'fast' || detailLevel === 'summarized'
+    ? FAST_MODE_ARRAY_SAMPLE_SIZE
+    : DEFAULT_ARRAY_SAMPLE_SIZE;
+  const shouldSummarize = detailLevel === 'summarized' || depthMode === 'fast';
+
+  const componentsByType = shouldSummarize
+    ? summarizeRecordArrays(analysisResult.components.byType, 'components.byType', sampleSize)
+    : analysisResult.components.byType;
+
+  const componentsAll = shouldSummarize
+    ? summarizeArray(analysisResult.components.all, 'components.all', sampleSize)
+    : analysisResult.components.all;
+
+  const powerICs = analysisResult.components.byType['IC_POWER'] || [];
+  const inductors = analysisResult.components.byType['INDUCTOR'] || [];
+  const capacitors = analysisResult.components.byType['CAPACITOR'] || [];
+
+  const powerPayload = {
+    powerNets: shouldSummarize ? summarizeArray(analysisResult.powerNets, 'powerNets', sampleSize) : analysisResult.powerNets,
+    powerComponents: {
+      regulators: shouldSummarize ? summarizeArray(powerICs, 'power.regulators', sampleSize) : powerICs,
+      inductors: shouldSummarize ? summarizeArray(inductors, 'power.inductors', sampleSize) : inductors,
+      capacitorCount: capacitors.length,
+      capacitors: shouldSummarize ? summarizeArray(capacitors, 'power.capacitors', sampleSize) : capacitors,
+    },
+    thermalAnalysis: shouldSummarize ? summarizeArray(analysisResult.thermalAnalysis, 'thermalAnalysis', sampleSize) : analysisResult.thermalAnalysis,
+  };
+
+  const signalPayload = {
+    signalNets: shouldSummarize ? summarizeArray(analysisResult.signalNets, 'signalNets', sampleSize) : analysisResult.signalNets,
+    differentialPairs: shouldSummarize ? summarizeArray(analysisResult.differentialPairs, 'differentialPairs', sampleSize) : analysisResult.differentialPairs,
+    traceStats: analysisResult.traceStats,
+    layerStackup: analysisResult.layerStackup,
+  };
+
+  const componentsPayload = {
+    byType: componentsByType,
+    all: componentsAll,
+    fullCounts: {
+      totalComponents: analysisResult.summary.totalComponents,
+      byType: Object.entries(analysisResult.components.byType).reduce<Record<string, number>>((acc, [key, value]) => {
+        acc[key] = Array.isArray(value) ? value.length : 0;
+        return acc;
+      }, {}),
+    },
+    crossReference: analysisResult.crossReference,
+  };
+
+  const dfmPayload = {
+    viaStats: analysisResult.viaStats,
+    viaInPad: shouldSummarize ? summarizeArray(analysisResult.viaInPad, 'viaInPad', sampleSize) : analysisResult.viaInPad,
+    traceStats: analysisResult.traceStats,
+    layerStackup: analysisResult.layerStackup,
+    summaryMetrics: {
+      totalTraces: analysisResult.summary.totalTraces,
+      totalVias: analysisResult.summary.totalVias,
+      viaInPadCount: analysisResult.summary.viaInPadCount,
+    },
+  };
+
+  return {
+    summary: analysisResult.summary,
+    power: powerPayload,
+    signals: signalPayload,
+    components: componentsPayload,
+    dfm: dfmPayload,
+  };
+}
+
+function buildPreprocessedPromptData(
+  analysisResult: AnalysisResult,
+  depthMode: AnalysisDepthMode,
+): PreprocessedPromptData {
+  const fullPayloads = buildPromptPayloads(analysisResult, 'full', depthMode);
+  const fullSize = estimateSize(JSON.stringify(fullPayloads));
+
+  if (fullSize.bytes > MAX_PROMPT_BYTES || fullSize.tokens > MAX_PROMPT_TOKENS) {
+    const summarizedPayloads = buildPromptPayloads(analysisResult, 'summarized', depthMode);
+    const summarizedSize = estimateSize(JSON.stringify(summarizedPayloads));
+    return {
+      payloads: summarizedPayloads,
+      detailLevel: 'summarized',
+      estimatedBytes: summarizedSize.bytes,
+      estimatedTokens: summarizedSize.tokens,
+    };
+  }
+
+  return {
+    payloads: fullPayloads,
+    detailLevel: depthMode === 'fast' ? 'summarized' : 'full',
+    estimatedBytes: fullSize.bytes,
+    estimatedTokens: fullSize.tokens,
+  };
 }
 
 
@@ -136,11 +312,13 @@ export function ReviewRunner({
   onStatusChange,
   onCancelRef,
   onOpenSettings,
+  analysisDepthMode = 'full',
 }: ReviewRunnerProps) {
   const [status, setStatus] = useState<ReviewStatus>('idle');
   const [_progress, setProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
   const [_currentAnalysis, setCurrentAnalysis] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [promptGuardrailNotice, setPromptGuardrailNotice] = useState<string | null>(null);
   const [_streamingContent, setStreamingContent] = useState<string>('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const resultsRef = useRef<ReviewResult[]>([]);
@@ -169,9 +347,9 @@ export function ReviewRunner({
     selectedAnalyses.length > 0 &&
     llmConfig.apiKey.trim() !== '';
 
-  const buildUserPrompt = useCallback((promptId: string): string => {
+  const buildUserPrompt = useCallback((promptId: string, payloads: PromptPayloadSet): string => {
     const prompt = getPromptById(promptId);
-    if (!prompt || !analysisResult) return '';
+    if (!prompt) return '';
 
     const parts: string[] = [];
 
@@ -190,69 +368,32 @@ export function ReviewRunner({
     for (const jsonFile of prompt.jsonFiles) {
       switch (jsonFile) {
         case 'summary':
-          parts.push(`### Summary\n\`\`\`json\n${JSON.stringify(analysisResult.summary, null, 2)}\n\`\`\`\n`);
+          parts.push(`### Summary\n\`\`\`json\n${JSON.stringify(payloads.summary, null, 2)}\n\`\`\`\n`);
           break;
         case 'power': {
-          // Build power data from analyzer output - include power ICs for regulator identification
-          const powerICs = analysisResult.components.byType['IC_POWER'] || [];
-          const inductors = analysisResult.components.byType['INDUCTOR'] || [];
-          const capacitors = analysisResult.components.byType['CAPACITOR'] || [];
-          const powerData = {
-            powerNets: analysisResult.powerNets,
-            powerComponents: {
-              regulators: powerICs,
-              inductors: inductors,
-              // Include capacitor count and sample for context (full list can be huge)
-              capacitorCount: capacitors.length,
-              capacitorSample: capacitors.slice(0, 20),
-            },
-            thermalAnalysis: analysisResult.thermalAnalysis,
-          };
-          parts.push(`### Power Analysis\n\`\`\`json\n${JSON.stringify(powerData, null, 2)}\n\`\`\`\n`);
+          parts.push(`### Power Analysis\n\`\`\`json\n${JSON.stringify(payloads.power, null, 2)}\n\`\`\`\n`);
           break;
         }
         case 'signals': {
-          // Build signals data from analyzer output
-          const signalsData = {
-            signalNets: analysisResult.signalNets,
-            differentialPairs: analysisResult.differentialPairs,
-            traceStats: analysisResult.traceStats,
-            layerStackup: analysisResult.layerStackup,
-          };
-          parts.push(`### Signal Analysis\n\`\`\`json\n${JSON.stringify(signalsData, null, 2)}\n\`\`\`\n`);
+          parts.push(`### Signal Analysis\n\`\`\`json\n${JSON.stringify(payloads.signals, null, 2)}\n\`\`\`\n`);
           break;
         }
         case 'components': {
-          // Build components data
-          const componentsData = {
-            byType: analysisResult.components.byType,
-            all: analysisResult.components.all,
-            crossReference: analysisResult.crossReference,
-          };
-          parts.push(`### Components\n\`\`\`json\n${JSON.stringify(componentsData, null, 2)}\n\`\`\`\n`);
+          parts.push(`### Components\n\`\`\`json\n${JSON.stringify(payloads.components, null, 2)}\n\`\`\`\n`);
           break;
         }
         case 'dfm': {
-          // Build DFM data from analyzer output
-          const dfmData = {
-            viaStats: analysisResult.viaStats,
-            viaInPad: analysisResult.viaInPad,
-            traceStats: analysisResult.traceStats,
-            layerStackup: analysisResult.layerStackup,
-          };
-          console.log('DFM Data sent to LLM:', dfmData);
-          console.log('Via-in-pad instances:', analysisResult.viaInPad);
-          parts.push(`### DFM Analysis\n\`\`\`json\n${JSON.stringify(dfmData, null, 2)}\n\`\`\`\n`);
+          parts.push(`### DFM Analysis\n\`\`\`json\n${JSON.stringify(payloads.dfm, null, 2)}\n\`\`\`\n`);
           break;
         }
       }
     }
 
     return parts.join('\n');
-  }, [analysisResult, description]);
+  }, [description]);
 
   const runAnalyses = useCallback(async () => {
-    if (!canRun) return;
+    if (!canRun || !analysisResult) return;
 
     // Create new AbortController for this run
     abortControllerRef.current = new AbortController();
@@ -262,6 +403,13 @@ export function ReviewRunner({
     // Total includes all analyses plus the executive summary step
     const totalSteps = selectedAnalyses.length + 1;
     updateStatus('running', { current: 0, total: totalSteps }, '', '', null);
+
+    const preprocessedData = buildPreprocessedPromptData(analysisResult, analysisDepthMode);
+    if (preprocessedData.detailLevel === 'summarized') {
+      setPromptGuardrailNotice(`Large analysis dataset detected (~${preprocessedData.estimatedTokens.toLocaleString()} tokens estimate). Using summarized mode for faster and safer prompt delivery.`);
+    } else {
+      setPromptGuardrailNotice(null);
+    }
 
     for (let i = 0; i < selectedAnalyses.length; i++) {
       if (signal.aborted) {
@@ -278,7 +426,7 @@ export function ReviewRunner({
       updateStatus('running', { current: i, total: totalSteps }, prompt.name, '', null);
 
       try {
-        const userPrompt = buildUserPrompt(promptId);
+        const userPrompt = buildUserPrompt(promptId, preprocessedData.payloads);
         let currentStream = '';
 
         const response = await callLLM(
@@ -371,7 +519,7 @@ export function ReviewRunner({
         onReviewComplete(resultsRef.current, executiveSummary);
       }
     }
-  }, [canRun, selectedAnalyses, llmConfig, buildUserPrompt, onReviewComplete, onPartialResult, updateStatus, onStatusChange, analysisResult, description]);
+  }, [canRun, selectedAnalyses, llmConfig, buildUserPrompt, onReviewComplete, onPartialResult, updateStatus, onStatusChange, analysisResult, description, analysisDepthMode]);
 
   const cancelAnalyses = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -418,6 +566,9 @@ export function ReviewRunner({
           )}
           {!canRun && !needsApiKey && (
             <p className={styles.statusMessage}>{getStatusMessage()}</p>
+          )}
+          {promptGuardrailNotice && (
+            <p className={styles.guardrailMessage}>{promptGuardrailNotice}</p>
           )}
         </>
       )}

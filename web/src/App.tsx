@@ -26,6 +26,7 @@ const DEFAULT_SETTINGS: Settings = {
   organization: '',
   saveApiKey: false,
   theme: 'auto',
+  analysisDepthMode: 'full',
 };
 
 export default function App() {
@@ -103,6 +104,7 @@ export default function App() {
       organization: newSettings.organization,
       saveApiKey: newSettings.saveApiKey,
       theme: newSettings.theme,
+      analysisDepthMode: newSettings.analysisDepthMode,
     };
 
     if (newSettings.saveApiKey) {
@@ -291,6 +293,7 @@ export default function App() {
               onStatusChange={handleStatusChange}
               onCancelRef={cancelAnalysisRef}
               onOpenSettings={() => setShowSettings(true)}
+              analysisDepthMode={settings.analysisDepthMode}
             />
           </section>
 
